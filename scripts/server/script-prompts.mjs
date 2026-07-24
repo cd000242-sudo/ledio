@@ -248,6 +248,77 @@ export function parseCoupangProductInfo(raw) {
   }
 }
 
+/** 리믹스 소스 영상의 대표 프레임에서 내용·박힌 자막 위치를 뽑는 비전 프롬프트. */
+export function sourceClipVisionPrompt() {
+  return (
+    '첨부한 이미지는 편집에 쓸 소스 영상의 대표 프레임이다. JSON 하나만 출력하라(설명·코드펜스 금지). ' +
+    '형식: {"description":"이 장면의 내용을 한 문장으로(무엇이 보이고 무슨 행동을 하는지)",' +
+    '"hasSubtitles":화면에 구워진 자막·큰 텍스트 오버레이가 있으면 true,' +
+    '"subtitleBand":{"top":자막 영역 상단의 세로 위치(0=화면 맨 위, 1=맨 아래),"bottom":자막 영역 하단 위치}} ' +
+    '자막이 없으면 subtitleBand는 null. 워터마크·작은 로고는 자막으로 치지 않는다.'
+  )
+}
+
+/** 비전 응답에서 소스 클립 정보를 관대하게 파싱한다. 밴드는 0~1 클램프, 역전·높이 40% 초과는 null. */
+export function parseSourceClipInfo(raw) {
+  try {
+    const text = String(raw ?? '')
+    const start = text.indexOf('{')
+    const end = text.lastIndexOf('}')
+    if (start < 0 || end <= start) return null
+    const parsed = JSON.parse(text.slice(start, end + 1))
+    if (typeof parsed !== 'object' || parsed === null) return null
+    const clamp01 = (value) => Math.min(1, Math.max(0, Number(value)))
+    let subtitleBand = null
+    if (parsed.hasSubtitles && parsed.subtitleBand && typeof parsed.subtitleBand === 'object') {
+      const top = clamp01(parsed.subtitleBand.top)
+      const bottom = clamp01(parsed.subtitleBand.bottom)
+      // 역전·과대(40% 초과) 밴드는 오탐으로 보고 블러를 생략한다.
+      if (Number.isFinite(top) && Number.isFinite(bottom) && bottom > top && bottom - top <= 0.4) {
+        subtitleBand = { top, bottom }
+      }
+    }
+    return {
+      description: String(parsed.description ?? '').trim(),
+      hasSubtitles: Boolean(parsed.hasSubtitles),
+      subtitleBand,
+    }
+  } catch {
+    return null
+  }
+}
+
+/** 대본 문장별로 가장 어울리는 소스 영상을 고르는 매칭 프롬프트. */
+export function remixMatchPrompt(sentences, descriptions) {
+  return (
+    '너는 쇼츠 편집자다. 아래 나레이션 문장 각각에 가장 어울리는 소스 영상을 골라라. ' +
+    '문장이 말하는 내용·행동·분위기와 영상 장면이 맞아야 한다. 같은 영상을 여러 문장에 써도 된다. ' +
+    `JSON 배열만 출력하라(설명·코드펜스 금지). 형식: [0,2,1,...] — 길이는 문장 수(${sentences.length})와 같고, 값은 0~${descriptions.length - 1}의 영상 번호다.\n\n` +
+    `[소스 영상]\n${descriptions.map((desc, index) => `${index}. ${desc}`).join('\n')}\n\n` +
+    `[나레이션 문장]\n${sentences.map((sentence, index) => `${index + 1}. ${sentence}`).join('\n')}`
+  )
+}
+
+/** 매칭 응답 파서 — 범위 밖·부족분은 라운드로빈(i % 소스수)으로 채운다. JSON이 없으면 null. */
+export function parseRemixMatch(raw, sentenceCount, sourceCount) {
+  try {
+    const text = String(raw ?? '')
+    const start = text.indexOf('[')
+    const end = text.lastIndexOf(']')
+    if (start < 0 || end <= start) return null
+    const parsed = JSON.parse(text.slice(start, end + 1))
+    if (!Array.isArray(parsed)) return null
+    const result = []
+    for (let index = 0; index < sentenceCount; index++) {
+      const value = Math.round(Number(parsed[index]))
+      result.push(Number.isFinite(value) && value >= 0 && value < sourceCount ? value : index % sourceCount)
+    }
+    return result
+  } catch {
+    return null
+  }
+}
+
 export function splitSentencesForDelivery(text) {
   return text
     .split(/(?<=[.!?。！？…]|다\.|요\.|죠\.)\s+/u)

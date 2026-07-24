@@ -789,6 +789,123 @@ describe('local server API', () => {
     expect(yaml).toContain('쿠팡 파트너스')
   })
 
+  it('source-remix: 대본·소스·목소리 검증과 경로 탈출을 막는다', async () => {
+    await startServer()
+    const missing = await fetch(`${baseUrl}/api/source-remix`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ projectName: 'r1', script: '', clips: ['clips/a.mp4'], voice: 'me' }),
+    })
+    expect(missing.status).toBe(400)
+
+    const escape = await fetch(`${baseUrl}/api/source-remix`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ projectName: 'r1', script: '문장입니다.', clips: ['../../x.mp4'], voice: 'me' }),
+    })
+    expect(escape.status).toBe(403)
+  })
+
+  it('source-remix: 소스 분석→매칭→plan.json→CLI 실행까지 잡으로 처리한다', async () => {
+    const calls = []
+    await startServer(async (call) => {
+      calls.push(call)
+      return { exitCode: 0, stdout: 'remix ok', stderr: '' }
+    })
+    // 실제 ffprobe/ffmpeg가 필요(프레임 추출) — 서버와 같은 위치에서 찾는다.
+    const { homedir } = await import('node:os')
+    const wingetLinks = join(homedir(), 'AppData', 'Local', 'Microsoft', 'WinGet', 'Links')
+    const ffmpegBin = process.env.FFMPEG_PATH || join(wingetLinks, 'ffmpeg.exe')
+    const { spawn } = await import('node:child_process')
+    const runTool = (bin, args) =>
+      new Promise((resolveRun, rejectRun) => {
+        const child = spawn(bin, args, { windowsHide: true, shell: false })
+        child.on('close', (code) => (code === 0 ? resolveRun() : rejectRun(new Error(`exit ${code}`))))
+        child.on('error', rejectRun)
+      })
+    const clipsDir = join(workspaceRoot, 'projects', 'remix-e2e', 'clips')
+    const { mkdir: mkdirp } = await import('node:fs/promises')
+    await mkdirp(clipsDir, { recursive: true })
+    await runTool(ffmpegBin, [
+      '-y', '-f', 'lavfi', '-i', 'color=c=red:s=320x240:d=1', '-pix_fmt', 'yuv420p', join(clipsDir, 'src1.mp4'),
+    ])
+
+    const realFetch = globalThis.fetch
+    globalThis.fetch = async (url, init) => {
+      if (String(url).includes('api.openai.com')) {
+        const request = JSON.parse(init.body)
+        const content = request.messages?.[0]?.content
+        const isVision = Array.isArray(content)
+        return new Response(
+          JSON.stringify({
+            choices: [
+              {
+                message: {
+                  content: isVision
+                    ? '{"description":"빨간 배경 장면","hasSubtitles":true,"subtitleBand":{"top":0.8,"bottom":0.95}}'
+                    : '[0, 0]',
+                },
+              },
+            ],
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        )
+      }
+      return realFetch(url, init)
+    }
+    try {
+      const started = await (
+        await realFetch(`${baseUrl}/api/source-remix`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            projectName: 'remix-e2e',
+            script: '첫 문장입니다. 둘째 문장입니다.',
+            clips: ['clips/src1.mp4'],
+            voice: 'typecast:tc_abc',
+            typecastApiKey: 'tc-key',
+            scriptMethod: 'api-gpt',
+            scriptApiKey: 'test-key',
+            disclosure: '쿠팡 파트너스 고지',
+          }),
+        })
+      ).json()
+      expect(started.ok).toBe(true)
+      expect(started.jobId).toBeTruthy()
+
+      // 잡 완료까지 폴링(분석은 실제 ffprobe/ffmpeg, 비전·매칭은 스텁)
+      let job = null
+      for (let attempt = 0; attempt < 60; attempt++) {
+        const data = await (await realFetch(`${baseUrl}/api/jobs`)).json()
+        job = (data.jobs || []).find((entry) => entry.id === started.jobId)
+        if (job && (job.status === 'done' || job.status === 'error')) break
+        await new Promise((resolveWait) => setTimeout(resolveWait, 250))
+      }
+      expect(job?.status).toBe('done')
+
+      // CLI 호출 검증
+      const remixCall = calls.find((call) => call.command === 'source-remix')
+      expect(remixCall).toBeTruthy()
+      expect(remixCall.args).toContain('--voice')
+      expect(remixCall.args).toContain('typecast:tc_abc')
+      expect(remixCall.args).toContain('--tts-provider')
+      expect(remixCall.args).toContain('typecast')
+      expect(remixCall.env?.TYPECAST_API_KEY).toBe('tc-key')
+
+      // plan.json 계약 검증
+      const plan = JSON.parse(
+        await readFile(join(workspaceRoot, 'projects', 'remix-e2e', 'remix', 'plan.json'), 'utf8'),
+      )
+      expect(plan.sentences).toHaveLength(2)
+      expect(plan.assignments).toEqual([0, 0])
+      expect(plan.sources[0].subtitleBand).toEqual({ top: 0.8, bottom: 0.95 })
+      expect(plan.sources[0].description).toContain('빨간')
+      expect(plan.disclosure).toContain('쿠팡')
+    } finally {
+      globalThis.fetch = realFetch
+    }
+  }, 30000)
+
   it('proxies the typecast voice catalog with the api key header', async () => {
     const { createServer: createHttpServer } = await import('node:http')
     const upstream = createHttpServer((req, res) => {

@@ -8,10 +8,14 @@ import {
   judgePrompt,
   parseCoupangProductInfo,
   parseDeliveryResponse,
+  parseRemixMatch,
   parseShotResponse,
+  parseSourceClipInfo,
+  remixMatchPrompt,
   scriptPrompt,
   seriesArcPrompt,
   shotPrompt,
+  sourceClipVisionPrompt,
   splitScenesForShots,
   splitSentencesForDelivery,
 } from './server/script-prompts.mjs'
@@ -27,6 +31,12 @@ import {
   geminiVisionParts,
   openaiVisionContent,
 } from './server/coupang-shorts.mjs'
+import {
+  buildFrameExtractArgs,
+  buildProbeArgs,
+  buildRemixPlan,
+  parseProbeOutput,
+} from './server/source-remix.mjs'
 import { mkdir, readFile, stat, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import { delimiter, dirname, extname, isAbsolute, join, normalize, resolve, sep } from 'node:path'
@@ -2365,6 +2375,248 @@ function pad2(value) {
   return String(value).padStart(2, '0')
 }
 
+/** 도구(ffprobe/ffmpeg) 실행 stdout을 문자열로 받는다 — 짧은 작업 전용. */
+function runToolCapture(binary, args) {
+  return new Promise((resolveRun, rejectRun) => {
+    const child = spawn(binary, args, { windowsHide: true, shell: false })
+    let stdout = ''
+    let stderr = ''
+    child.stdout.on('data', (chunk) => {
+      stdout += String(chunk)
+    })
+    child.stderr.on('data', (chunk) => {
+      stderr += String(chunk)
+    })
+    child.on('close', (code) => {
+      if (code === 0) resolveRun(stdout)
+      else rejectRun(new Error(stderr.split(/\r?\n/).filter(Boolean).slice(-3).join(' ').slice(0, 300) || `exit ${code}`))
+    })
+    child.on('error', rejectRun)
+  })
+}
+
+/**
+ * 소스 짜집기 — 소스 분석(프로브·프레임·비전 자막감지)→AI 매칭→plan.json→CLI source-remix.
+ * 무거운 렌더는 전부 CLI로 위임하고, 분석은 큐에 들어간 run() 안에서 수행한다(스토리 파이프라인과 동일 패턴).
+ */
+async function handleSourceRemix(req, res, workspaceRoot, commandRunner) {
+  const body = await readJsonBody(req, 2 * 1024 * 1024)
+  const projectName = safeProjectName(body.projectName ?? 'remix-shorts')
+  const script = String(body.script ?? '').trim()
+  const clips = Array.isArray(body.clips) ? body.clips.filter(Boolean).map(String) : []
+  if (!script) {
+    sendJson(res, 400, { ok: false, error: '대본(script)이 필요합니다.' })
+    return
+  }
+  if (clips.length === 0) {
+    sendJson(res, 400, { ok: false, error: '소스 영상을 먼저 업로드하세요.' })
+    return
+  }
+  if (!String(body.voice ?? '').trim()) {
+    sendJson(res, 400, { ok: false, error: '목소리를 선택하세요 — 자막이 목소리 타이밍에 맞춰집니다.' })
+    return
+  }
+  const projectDir = projectDirFromName(workspaceRoot, projectName)
+  const sourceFiles = []
+  for (const rel of clips.slice(0, 10)) {
+    const abs = join(projectDir, rel)
+    if (!safeStartsWith(abs, projectDir)) {
+      sendJson(res, 403, { ok: false, error: '허용되지 않은 경로입니다.' })
+      return
+    }
+    if (!existsSync(abs)) {
+      sendJson(res, 400, { ok: false, error: `소스 파일을 찾을 수 없습니다: ${rel}` })
+      return
+    }
+    sourceFiles.push(abs)
+  }
+
+  const remixDir = join(projectDir, 'remix')
+  const finalVideo = join(remixDir, 'video', 'output', 'video_01.mp4')
+  const planPath = join(remixDir, 'plan.json')
+  const method = String(body.scriptMethod ?? '')
+  const apiKey = String(body.scriptApiKey ?? '')
+  const ffprobeBin = findExecutable('ffprobe', 'FFPROBE_PATH') || 'ffprobe'
+  const ffmpegBin = findExecutable('ffmpeg', 'FFMPEG_PATH') || 'ffmpeg'
+
+  const job = createPipelineJob({
+    projectName,
+    title: String(body.title ?? projectName),
+    pipelineDir: remixDir,
+    finalVideo,
+  })
+  job.logLines = []
+  job.track = { child: null }
+  const pushLog = (message) => {
+    job.logLines.push(message)
+    if (job.logLines.length > 60) job.logLines.splice(0, job.logLines.length - 60)
+  }
+  const writeRemixProgress = async (current, completed) => {
+    try {
+      await writeFile(
+        join(remixDir, 'progress.json'),
+        JSON.stringify(
+          {
+            status: 'running',
+            stages: ['analyze', 'narrate', 'cut', 'clips', 'render'],
+            current,
+            completed,
+            updatedAt: new Date().toISOString(),
+          },
+          null,
+          2,
+        ),
+        'utf8',
+      )
+    } catch {
+      /* 진행 표시는 부가 기능 */
+    }
+  }
+
+  const runRemixJob = async () => {
+    await mkdir(join(remixDir, 'frames'), { recursive: true })
+    await writeRemixProgress('analyze', [])
+
+    // ① 소스별 길이·해상도 프로브 + 대표 프레임 추출 + 비전 분석(내용·박힌 자막 위치)
+    const sources = []
+    for (let index = 0; index < sourceFiles.length; index++) {
+      if (job.cancelled) return { exitCode: 1, stdout: '', stderr: '중지됨' }
+      const abs = sourceFiles[index]
+      let probe = null
+      try {
+        probe = parseProbeOutput(await runToolCapture(ffprobeBin, buildProbeArgs(abs)))
+      } catch {
+        probe = null
+      }
+      if (!probe || !probe.durationSec) {
+        return { exitCode: 1, stdout: '', stderr: `소스 영상을 읽을 수 없습니다: ${clips[index]}` }
+      }
+      const framePath = join(remixDir, 'frames', `frame_${pad2(index + 1)}.png`)
+      try {
+        await runToolCapture(ffmpegBin, buildFrameExtractArgs(abs, probe.durationSec / 2, framePath))
+      } catch (error) {
+        return { exitCode: 1, stdout: '', stderr: `대표 프레임 추출 실패(${clips[index]}): ${error.message}` }
+      }
+      let info = null
+      if (method.startsWith('api-') && apiKey) {
+        try {
+          const frameData = await readFile(framePath)
+          const raw = await generateWithMethod(method, apiKey, sourceClipVisionPrompt(), false, true, [
+            { base64: frameData.toString('base64'), mimeType: 'image/png' },
+          ])
+          info = parseSourceClipInfo(raw)
+        } catch (error) {
+          pushLog(`소스 ${index + 1} 비전 분석 실패(계속 진행): ${error.message}`)
+        }
+      }
+      pushLog(
+        `소스 ${index + 1}/${sourceFiles.length}: ${info?.description || '설명 없음'}${info?.subtitleBand ? ' · 자막 감지 → 블러 예정' : ''}`,
+      )
+      sources.push({
+        file: abs,
+        frame: framePath,
+        description: info?.description || `소스 영상 ${index + 1}`,
+        durationSec: probe.durationSec,
+        width: probe.width || 1080,
+        height: probe.height || 1920,
+        subtitleBand: info?.subtitleBand ?? null,
+      })
+    }
+    if (job.cancelled) return { exitCode: 1, stdout: '', stderr: '중지됨' }
+
+    // ② 문장 분할 + AI 내용 매칭(실패 시 순서 배치 폴백)
+    const sentences = splitSentencesForDelivery(script)
+    let assignments = null
+    if (method) {
+      try {
+        const raw = await generateWithMethod(
+          method,
+          apiKey,
+          remixMatchPrompt(sentences, sources.map((source) => source.description)),
+          false,
+          true,
+        )
+        assignments = parseRemixMatch(raw, sentences.length, sources.length)
+      } catch (error) {
+        pushLog(`AI 매칭 실패 — 순서 배치로 진행: ${error.message}`)
+      }
+    }
+    if (!assignments) assignments = sentences.map((_, index) => index % sources.length)
+    pushLog(`문장 ${sentences.length}개 ↔ 소스 배정 [${assignments.join(', ')}]`)
+
+    // ③ 말투 연출 계획(선택)
+    const styleId = String(body.narrationStyle ?? 'shopping-host')
+    const strength = Math.min(3, Math.max(1, Math.round(Number(body.narrationStrength) || 2)))
+    const customInstruction = String(body.customNarrationStyle ?? '').trim().slice(0, 500)
+    const selectedStyle = resolveNarrationStyle(styleId, customInstruction)
+    const delivery = await inferDeliveryPlan(
+      body.directedNarration ? method : '',
+      apiKey,
+      script,
+      selectedStyle.id,
+      strength,
+      customInstruction,
+    )
+    const deliveryArgs = []
+    if (delivery) {
+      const deliveryPath = join(remixDir, 'narration-delivery.json')
+      await writeFile(
+        deliveryPath,
+        JSON.stringify(
+          { styleId: selectedStyle.id, styleLabel: selectedStyle.label, strength, sentences: delivery },
+          null,
+          2,
+        ),
+        'utf8',
+      )
+      deliveryArgs.push('--delivery', deliveryPath)
+    }
+
+    // ④ plan.json 저장 → CLI 실행
+    const plan = buildRemixPlan({
+      projectName,
+      title: String(body.title ?? '').trim() || undefined,
+      sentences,
+      sources,
+      assignments,
+      ratio: body.ratio,
+      disclosure: String(body.disclosure ?? '').trim() || undefined,
+    })
+    await writeFile(planPath, JSON.stringify(plan, null, 2), 'utf8')
+    if (job.cancelled) return { exitCode: 1, stdout: '', stderr: '중지됨' }
+    return commandRunner({
+      command: 'source-remix',
+      projectPath: planPath,
+      workspaceRoot,
+      args: [
+        'source-remix',
+        planPath,
+        '--voice',
+        cliVoiceArg(body.voice),
+        '--tts-provider',
+        body.ttsProvider === 'mock' ? 'mock' : isTypecastVoice(body.voice) ? 'typecast' : 'qwen3',
+        '--out-dir',
+        remixDir,
+        ...deliveryArgs,
+      ],
+      env: typecastEnvFrom(body),
+      onOutput: (chunk) => {
+        for (const line of String(chunk).split(/\r?\n/)) {
+          const trimmed = line.trim()
+          if (trimmed) pushLog(trimmed)
+        }
+      },
+      onSpawn: (child) => {
+        job.track.child = child
+      },
+    })
+  }
+
+  pipelineQueue.push({ job, run: runRemixJob })
+  processPipelineQueue()
+  sendJson(res, 200, { ok: true, jobId: job.id, projectName, pipelineDir: remixDir, finalVideo })
+}
+
 async function handleProductPipeline(req, res, workspaceRoot, commandRunner) {
   const body = await readJsonBody(req, 2 * 1024 * 1024)
   const projectName = safeProjectName(body.projectName ?? 'shop-shorts')
@@ -2742,6 +2994,11 @@ export function createShortsFactoryServer(options = {}) {
 
       if (pathname === '/api/coupang/analyze' && req.method === 'POST') {
         await handleCoupangAnalyze(req, res, workspaceRoot)
+        return
+      }
+
+      if (pathname === '/api/source-remix' && req.method === 'POST') {
+        await handleSourceRemix(req, res, workspaceRoot, commandRunner)
         return
       }
 

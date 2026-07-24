@@ -24,9 +24,11 @@
 7. 서버 — generateWithMethod 비전 확장(API 방식 전용), `/api/coupang/analyze`, story-pipeline 필드 패스스루.
 8. UI — `app/product-ai-mode.js`(캡처→분석→대본→엔진 선택→잡 진행→결과), product-wizard 모드 토글.
 
-## 2단계 (예정 — 참고 영상 수령 후)
+## 2단계: 소스 짜집기 모드 (완료 — 2026-07-24 승인·구현)
 
-소스 짜집기 모드 개편: AI 대본 + 타입캐스트 TTS + 소스 클립 자동 배치 + 동일한 12자 센터 자막 동기화.
+- 쿠팡 캡처 자동 채움·바이럴 대본·타입캐스트: 1단계 재사용.
+- 소스 영상 여러 개 업로드 → 원본 오디오 자동 제거(클립 렌더 매핑에서 구조적) + 박힌 자막 비전 감지→영역 블러 + AI 내용 매칭(대표 프레임 분석, 실패 시 순서 폴백) → TTS 실측 길이 컷 → 12자 센터 자막 동기.
+- 구현: src/modes/remixPlan.ts(세그먼트·블러·컷 인자), CLI source-remix(5스테이지 progress), 서버 /api/source-remix(잡 큐 분석→plan.json), scripts/server/source-remix.mjs, app/product-remix-mode.js(쇼핑쇼츠 '소스 짜집기' 모드).
 
 ## 이전 계획
 

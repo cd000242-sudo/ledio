@@ -14,6 +14,7 @@ import { runAutoCaption } from './commands/autoCaption.js'
 import { runAutocut } from './commands/autocut.js'
 import { runNarrate } from './commands/narrate.js'
 import { runStoryPipeline } from './commands/storyPipeline.js'
+import { runSourceRemix } from './commands/sourceRemix.js'
 import { runProductRender } from './commands/productRender.js'
 import { STORY_TEMPLATES } from '../story/scriptTemplates.js'
 import { logger } from '../utils/logger.js'
@@ -242,6 +243,18 @@ program
       })
     },
   )
+
+program
+  .command('source-remix')
+  .description('소스 영상 짜집기: plan.json → 나레이션 → 컷·자막 블러 → 12자 센터 자막 → 완성 영상')
+  .argument('<plan>', '리믹스 계획 JSON(서버 분석 산출물)')
+  .requiredOption('--voice <name>', 'voices/<이름>.wav 또는 typecast:<voice_id>')
+  .option('--tts-provider <provider>', 'qwen3|typecast|mock', 'qwen3')
+  .option('--delivery <path>', '문장별 낭독 말투 연출 계획 JSON')
+  .option('--out-dir <dir>', '산출물 폴더 (기본: plan.json 폴더)')
+  .action(async (plan: string, options: Parameters<typeof runSourceRemix>[1]) => {
+    process.exitCode = await runSourceRemix(plan, options)
+  })
 
 program
   .command('narrate')
