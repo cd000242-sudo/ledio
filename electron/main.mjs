@@ -1,9 +1,12 @@
 /* global process, URL */
 import { app, BrowserWindow, Menu, dialog, ipcMain, shell } from 'electron'
+import electronUpdater from 'electron-updater'
 import { copyFile, mkdir } from 'node:fs/promises'
 import { basename, dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createShortsFactoryServer, killAllCliChildren } from '../scripts/local-server.mjs'
+
+const { autoUpdater } = electronUpdater
 
 const electronDir = dirname(fileURLToPath(import.meta.url))
 const workspaceRoot = resolve(app.getAppPath())
@@ -149,6 +152,34 @@ ipcMain.handle('shorts:select-and-import-media', async (_event, payload = {}) =>
   return { ok: true, projectDir, imported }
 })
 
+/**
+ * 자동 업데이트 — GitHub 릴리즈(latest.yml)를 확인해 새 버전을 내려받는다.
+ * 설치는 사용자가 '지금 재시작'을 눌렀을 때만 진행한다(무단 재시작 금지).
+ * 개발 실행(npm run electron)에서는 동작하지 않는다.
+ */
+function setupAutoUpdater() {
+  if (!app.isPackaged) return
+  autoUpdater.autoDownload = true
+  autoUpdater.autoInstallOnAppQuit = true
+  autoUpdater.on('update-downloaded', (info) => {
+    if (!mainWindow || mainWindow.isDestroyed()) return
+    const choice = dialog.showMessageBoxSync(mainWindow, {
+      type: 'info',
+      buttons: ['지금 재시작하고 설치', '나중에 (다음 실행 때 설치)'],
+      defaultId: 0,
+      cancelId: 1,
+      title: '업데이트 준비 완료',
+      message: `새 버전 v${info.version}이 다운로드됐습니다.`,
+      detail: '지금 재시작하면 바로 설치됩니다. 나중에를 누르면 앱을 닫을 때 자동으로 설치됩니다.',
+    })
+    if (choice === 0) autoUpdater.quitAndInstall()
+  })
+  autoUpdater.on('error', () => {
+    // 오프라인·릴리즈 없음 등은 조용히 무시 — 앱 사용을 막지 않는다.
+  })
+  autoUpdater.checkForUpdates().catch(() => {})
+}
+
 app.setName('쇼츠팩토리 스튜디오')
 Menu.setApplicationMenu(null)
 
@@ -162,7 +193,10 @@ if (!gotLock) {
     mainWindow.focus()
   })
 
-  app.whenReady().then(createWindow)
+  app.whenReady().then(async () => {
+    await createWindow()
+    setupAutoUpdater()
+  })
 
   app.on('window-all-closed', () => {
     if (process.platform !== 'darwin') app.quit()
