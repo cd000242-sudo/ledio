@@ -1,6 +1,6 @@
 {
   "name": "shorts-factory",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "로컬 우선 쇼핑 쇼츠 자동 생성 도구 (CLI)",
   "type": "module",
   "main": "electron/main.mjs",
