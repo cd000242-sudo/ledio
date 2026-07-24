@@ -13,6 +13,39 @@
   "engines": {
     "node": ">=20"
   },
+  "build": {
+    "appId": "com.shortsfactory.studio",
+    "productName": "쇼츠팩토리 스튜디오",
+    "asar": false,
+    "directories": {
+      "output": "release/installer"
+    },
+    "files": [
+      "electron/**/*",
+      "app/**/*",
+      "dist/**/*",
+      "scripts/**/*",
+      "!scripts/__pycache__/**",
+      "!scripts/**/*.test.mjs",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "shortcutName": "쇼츠팩토리 스튜디오",
+      "artifactName": "shorts-factory-setup-${version}.${ext}"
+    }
+  },
   "scripts": {
     "build": "tsc",
     "dev": "tsx src/cli/index.ts",
@@ -29,6 +62,7 @@
     "app": "node scripts/serve-app.mjs",
     "electron": "npm run build && electron .",
     "desktop": "npm run electron",
+    "release:installer": "npm run build && electron-builder --win --publish never",
     "verify": "npm run lint && npm run typecheck && npm test && npm run build && npm run sample:validate && npm run sample:package && npm run smoke:render && npm run release:bundle"
   },
   "dependencies": {
@@ -48,6 +82,7 @@
     "@playwright/test": "^1.61.1",
     "@types/node": "^20.16.11",
     "electron": "^43.0.0",
+    "electron-builder": "^26.15.3",
     "eslint": "^9.12.0",
     "tsx": "^4.19.1",
     "typescript": "^5.6.3",
