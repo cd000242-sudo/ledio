@@ -2884,3 +2884,26 @@ body[data-mode='simple'] #workbenchToggleBtn {
 ::selection {
   background: rgba(79, 124, 255, 0.35);
 }
+
+/* ── 첫 실행 온보딩 카드 (원클릭 제작 탭) ── */
+.onboard-card {
+  border: 1px solid rgba(79, 124, 255, 0.45);
+  background: var(--teal-soft);
+}
+
+.onboard-steps {
+  margin: 10px 0 12px;
+  padding-left: 20px;
+  display: grid;
+  gap: 8px;
+  list-style: none;
+}
+
+.onboard-steps li {
+  line-height: 1.55;
+  font-size: 13px;
+}
+
+.onboard-steps li.onboard-done {
+  color: var(--muted);
+}

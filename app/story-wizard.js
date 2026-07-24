@@ -194,6 +194,51 @@ async function loadTypecastVoices() {
   }
 }
 
+/** 환경설정 탭으로 이동한다(상단 탭 버튼 클릭과 동일). */
+function goToSettingsTab() {
+  const button = [...document.querySelectorAll('.main-tabs .tab-button')].find(
+    (el) => el.textContent === '환경설정',
+  );
+  button?.click();
+}
+
+/**
+ * 첫 실행 안내 카드 — 대본 생성 수단(API 키)이나 목소리가 아직 없을 때만 보인다.
+ * 준비가 끝나면 자동으로 사라진다(별도 닫기 버튼·저장 상태 불필요).
+ */
+function onboardingHtml() {
+  const settings = getSettings();
+  const hasScriptKey = Boolean(
+    `${settings.openaiApiKey || ''}${settings.geminiApiKey || ''}${settings.anthropicApiKey || ''}`.trim(),
+  );
+  const hasVoice = wizard.voices.length > 0 || wizard.typecastVoices.length > 0;
+  if (hasScriptKey && hasVoice) return '';
+  const step = (done, html) => `<li${done ? ' class="onboard-done"' : ''}>${done ? '✅' : '⬜'} ${html}</li>`;
+  return `
+    <section class="wizard-step onboard-card">
+      <h3>🚀 처음이신가요? 두 가지만 준비하면 바로 만들 수 있어요</h3>
+      <ol class="onboard-steps">
+        ${step(
+          hasScriptKey,
+          '<strong>AI 키 준비</strong> — 환경설정에서 OpenAI·Gemini·Claude 키 중 하나를 입력하세요. 키가 없어도 Claude Code/Codex 로그인으로 대본 생성이 됩니다.',
+        )}
+        ${step(
+          hasVoice,
+          '<strong>목소리 준비</strong> — 아래 ①에서 내 목소리를 10~30초 녹음해 등록하거나, 환경설정에 타입캐스트 API 키를 넣으면 전문 AI 성우를 바로 쓸 수 있어요.',
+        )}
+        ${step(
+          false,
+          '<strong>만들기</strong> — ②에서 주제를 넣고 AI 대본 생성 → 맨 아래 ‘영상 만들기’를 누르면 이미지·낭독·자막·렌더까지 자동으로 끝납니다.',
+        )}
+      </ol>
+      <div class="field-grid">
+        <button id="wizGoSettingsBtn" class="ghost-button" type="button">⚙️ 환경설정 열기</button>
+      </div>
+      <p class="wiz-hint">💡 키가 아직 없어도 체험할 수 있어요 — 이미지 생성기를 ‘테스트’로, 목소리를 ‘나레이션 없이’로 두고 실행해 보세요.</p>
+    </section>
+  `;
+}
+
 /** 타입캐스트 성우 optgroup HTML — 목록이 없으면 빈 문자열. */
 function typecastOptionsHtml(selected) {
   if (wizard.typecastVoices.length === 0) return '';
@@ -514,7 +559,7 @@ async function testVoice(container) {
 
 const STAGE_LABELS = {
   images: '이미지 생성',
-  narrate: '나레이션(내 목소리)',
+  narrate: '나레이션 생성',
   clips: '장면 클립 만들기',
   render: '최종 렌더',
 };
@@ -1564,8 +1609,9 @@ export function renderStoryWizardTab(container) {
 function renderWizard(container) {
   container.innerHTML = `
     <div class="wizard-panel">
+      ${onboardingHtml()}
       <section class="wizard-step">
-        <h3>① 내 목소리</h3>
+        <h3>① 목소리 <span class="wiz-hint">내 목소리 녹음 또는 타입캐스트 AI 성우</span></h3>
         <div class="field-grid">
           <label>사용할 목소리 <select id="wizVoiceSelect">${voiceOptions()}</select></label>
           <button id="wizVoiceTestBtn" class="ghost-button" type="button">테스트 듣기</button>
@@ -1580,6 +1626,11 @@ function renderWizard(container) {
             ? '<p class="wiz-status wiz-status-error">⚠️ 이 목소리는 테스트 대본(말한 문장) 없이 등록되어 억양·끝음 품질이 크게 떨어집니다. 같은 이름으로 테스트 대본과 함께 다시 등록하면 훨씬 자연스러워집니다.</p>'
             : '';
         })()}
+        ${
+          wizard.typecastVoices.length === 0
+            ? '<p class="wiz-hint">🎭 녹음 없이 시작하려면 환경설정에 타입캐스트 API 키를 넣어 보세요 — 전문 AI 성우 목소리가 이 목록에 추가됩니다.</p>'
+            : ''
+        }
         <details id="wizVoiceRegister" class="voice-register"${wizard.registerOpen || wizard.voices.length === 0 ? ' open' : ''}>
           <summary>🎤 새 목소리 등록하기 <span class="wiz-hint">10~30초 녹음 또는 파일 업로드 — 길수록 품질↑</span></summary>
           <div class="field-grid">
@@ -1817,6 +1868,7 @@ function bindWizard(container) {
   on('#wizVoiceSelect', 'change', (e) => {
     wizard.selectedVoice = e.target.value;
   });
+  on('#wizGoSettingsBtn', 'click', goToSettingsTab);
   on('#wizVoiceDefaultBtn', 'click', guard(async () => {
     if (!wizard.selectedVoice) throw new Error('기본으로 지정할 목소리를 먼저 선택해 주세요.');
     updateSettings({ defaultVoice: wizard.selectedVoice });
