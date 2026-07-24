@@ -1,0 +1,20 @@
+node_modules/
+dist/
+output/
+release/
+tmp/
+*.log
+.DS_Store
+Thumbs.db
+
+# 테스트/캐시 산출물
+test-results/
+.cache/
+__pycache__/
+
+# 사용자 작업 데이터 (낭독 wav·클립 영상 등 개인 데이터 포함)
+projects/
+
+# TTS 파이썬 환경(대용량) + 개인 목소리 샘플(개인정보)
+.venv-tts/
+voices/

@@ -1,0 +1,13 @@
+# 스토리 파이프라인 데모 입력.
+# 실행: npm run dev -- story-pipeline ./samples/story-demo/story-input.yaml --voice <목소리> --image-provider mock
+projectName: story-demo
+title: 한밤의 택배
+script: |
+  새벽 두 시, 현관 앞에 택배 상자가 놓여 있었습니다.
+  분명 아무것도 주문한 적이 없는데 말이죠.
+  송장에는 내일 날짜가 적혀 있었습니다.
+  상자를 여는 순간, 복도 불이 저절로 꺼졌습니다.
+  다음 이야기가 궁금하다면 팔로우하고 기다려 주세요.
+imageStyle: 세로형 9:16 쇼츠용 장면, 어두운 시네마틱 분위기, 이미지 안에 글자 없음
+maxSceneChars: 60
+sceneDurationSec: 4

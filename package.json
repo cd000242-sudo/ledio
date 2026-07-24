@@ -1,0 +1,57 @@
+{
+  "name": "shorts-factory",
+  "version": "0.1.1",
+  "description": "로컬 우선 쇼핑 쇼츠 자동 생성 도구 (CLI)",
+  "type": "module",
+  "main": "electron/main.mjs",
+  "bin": {
+    "shorts-factory": "./dist/cli/index.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/cli/index.ts",
+    "validate": "tsx src/cli/index.ts validate",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "playwright test",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "sample:validate": "tsx src/cli/index.ts validate ./samples/kitchen-shelf",
+    "sample:package": "tsx src/cli/index.ts package ./samples/kitchen-shelf",
+    "smoke:render": "node scripts/render-smoke.mjs",
+    "release:bundle": "tsx src/cli/index.ts release-bundle",
+    "app": "node scripts/serve-app.mjs",
+    "electron": "npm run build && electron .",
+    "desktop": "npm run electron",
+    "verify": "npm run lint && npm run typecheck && npm test && npm run build && npm run sample:validate && npm run sample:package && npm run smoke:render && npm run release:bundle"
+  },
+  "dependencies": {
+    "commander": "^12.1.0",
+    "execa": "^9.4.0",
+    "yaml": "^2.5.1",
+    "zod": "^3.23.8"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "electron",
+      "esbuild"
+    ]
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.12.0",
+    "@playwright/test": "^1.61.1",
+    "@types/node": "^20.16.11",
+    "electron": "^43.0.0",
+    "eslint": "^9.12.0",
+    "tsx": "^4.19.1",
+    "typescript": "^5.6.3",
+    "typescript-eslint": "^8.8.1",
+    "vitest": "^2.1.3"
+  }
+}

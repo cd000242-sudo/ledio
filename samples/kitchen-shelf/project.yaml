@@ -1,0 +1,78 @@
+projectName: kitchen-shelf-001
+
+product:
+  name: 접이식 싱크대 선반
+  category: 주방 수납
+  priceRange: 10000-30000
+  affiliateUrl: https://example.com/product
+  painPoint: 좁은 주방에서 컵과 양념통 둘 곳이 없음
+  benefit: 접으면 작고 펼치면 수납공간이 생김
+
+disclosure:
+  type: affiliate
+  text: 이 콘텐츠는 제휴 활동의 일환으로 수수료를 제공받을 수 있습니다.
+
+style:
+  duration: 25
+  ratio: 9:16
+  resolution: 1080x1920
+  tone: friend
+  captionPosition: bottom
+  bgmVolume: 0.18
+
+clips:
+  - file: clips/hook.mp4
+    role: hook
+    start: 0
+    end: 2.5
+
+  - file: clips/problem.mp4
+    role: problem
+    start: 0
+    end: 4
+
+  - file: clips/product.mp4
+    role: product
+    start: 0
+    end: 4
+
+  - file: clips/use.mp4
+    role: use
+    start: 0
+    end: 8
+
+  - file: clips/result.mp4
+    role: result
+    start: 0
+    end: 5
+
+variants:
+  count: 5
+
+publish:
+  campaignName: kitchen-shelf-affiliate
+  platforms:
+    - youtube_shorts
+    - instagram_reels
+    - tiktok
+  hashtags:
+    - 주방수납
+    - 살림템
+    - 추천템
+  cta: 가격과 상세 정보는 제휴링크에서 확인하세요.
+  fixedComment: 제품 상세 정보와 가격은 제휴링크에서 확인하세요.
+
+sources:
+  - title: 직접 촬영한 후킹 클립
+    file: clips/hook.mp4
+    rights: owned
+    usage: edit
+  - title: 직접 촬영한 제품 사용 클립
+    file: clips/use.mp4
+    rights: owned
+    usage: edit
+  - title: 경쟁 쇼츠 구조 참고
+    url: https://example.com/reference-short
+    rights: reference_only
+    usage: reference
+    notes: 후킹 구조와 장면 순서만 참고하고 영상 소스는 편집에 직접 사용하지 않음

@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>쇼츠팩토리 스튜디오</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="studio-shell">
+      <header class="topbar">
+        <div class="brand-block">
+          <span class="brand-mark">SF</span>
+          <div>
+            <p class="eyebrow">쇼츠팩토리</p>
+            <h1>영상 제작 스튜디오</h1>
+          </div>
+        </div>
+        <div class="topbar-actions">
+          <input id="manifestInput" type="file" accept="application/json,.json" hidden />
+          <input id="riskInput" type="file" accept="application/json,.json" hidden />
+          <button id="newProjectBtn" class="ghost-button" type="button">새 프로젝트</button>
+          <button id="exportMp4Btn" class="primary-button" type="button">MP4 내보내기</button>
+          <button id="exportGifBtn" class="ghost-button" type="button">GIF 내보내기</button>
+        </div>
+      </header>
+
+      <main class="studio-grid">
+        <nav id="mainTabs" class="main-tabs" aria-label="작업 탭"></nav>
+
+        <section class="preview-deck" aria-label="영상 미리보기">
+          <div class="preview-head">
+            <div>
+              <p class="eyebrow">실시간 미리보기</p>
+              <h2 id="previewTitle">-</h2>
+            </div>
+            <div class="preview-head-controls">
+              <select id="previewRatioField" title="화면 비율">
+                <option value="9:16">9:16 세로</option>
+                <option value="1:1">1:1 정사각</option>
+                <option value="16:9">16:9 가로</option>
+              </select>
+              <span id="previewPlatformBadge" class="soft-badge">-</span>
+            </div>
+          </div>
+
+          <div class="phone-stage">
+            <div id="phoneFrame" class="phone-frame" data-ratio="9:16">
+              <div class="phone-screen">
+                <video id="previewMedia" class="preview-media" muted playsinline aria-label="미리보기 영상"></video>
+                <img id="previewImage" class="preview-media" hidden alt="선택한 이미지 미리보기" />
+                <div id="previewCaptionOverlay" class="preview-caption-overlay" data-style="basic" data-position="bottom" aria-hidden="true">
+                  <span id="previewCaptionOverlayText"></span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="quick-edit-panel">
+            <div class="panel-title">
+              <span id="previewVideo">-</span>
+              <strong id="previewDuration">-</strong>
+            </div>
+            <div class="preview-transport">
+              <button id="previewPlayBtn" class="primary-button" type="button">▶ 재생</button>
+              <button id="previewModeBtn" class="ghost-button" type="button" title="편집 적용본과 원본을 번갈아 확인">편집본</button>
+            </div>
+            <label>재생 위치 <input id="previewPlayheadField" class="timeline-range" type="range" min="0" max="0.01" step="0.01" /></label>
+            <div class="quick-edit-meta">
+              <span id="previewPlayheadLabel">0s</span>
+              <span id="previewTrimLabel">0s - 0s</span>
+            </div>
+
+            <details class="quick-edit-group">
+              <summary>사운드</summary>
+              <div class="quick-edit-grid">
+                <button id="previewBgmBtn" class="ghost-button" type="button">사운드 넣기</button>
+                <input id="quickAudioFileInput" type="file" accept="audio/*" hidden />
+                <label>BGM 볼륨
+                  <select id="previewBgmVolumeField">
+                    <option value="0">끄기</option>
+                    <option value="0.12">작게</option>
+                    <option value="0.18">기본</option>
+                    <option value="0.25">조금 크게</option>
+                    <option value="0.35">강하게</option>
+                  </select>
+                </label>
+              </div>
+            </details>
+
+          </div>
+
+        </section>
+
+        <section id="timelineDeck" class="timeline-deck" aria-label="자동 편집 도구">
+          <div id="timelineResizeHandle" class="timeline-resize-handle" title="위아래로 드래그해서 타임라인 넓히기"></div>
+          <div id="automationDeck"></div>
+        </section>
+
+        <section class="workbench" aria-live="polite">
+          <div class="workbench-head">
+            <div>
+              <p id="tabEyebrow" class="eyebrow">기획</p>
+              <h2 id="tabTitle">프로젝트 기획</h2>
+            </div>
+            <div class="workbench-head-actions">
+              <span id="tabStatus" class="soft-badge">작성 중</span>
+              <button id="workbenchToggleBtn" class="ghost-button" type="button" title="편집 패널 접기/펼치기">패널 접기</button>
+            </div>
+          </div>
+          <div id="tabContent" class="tab-content"></div>
+        </section>
+
+        <aside class="action-panel" aria-label="실행 패널">
+          <div id="actionPanelContent"></div>
+        </aside>
+      </main>
+    </div>
+
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>
