@@ -1,4 +1,4 @@
-/* global Buffer, fetch, setTimeout */
+/* global Buffer, fetch, process, setTimeout */
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -588,6 +588,90 @@ describe('local server API', () => {
     expect(calls[0].args).toContain('narrate')
     expect(calls[0].args).toContain('--voice')
     expect(calls[0].args).toContain('me')
+  })
+
+  it('routes a typecast voice test to the typecast provider with the api key', async () => {
+    const calls = []
+    await startServer(async (call) => {
+      calls.push(call)
+      return { exitCode: 0, stdout: '', stderr: '' }
+    })
+    const response = await fetch(`${baseUrl}/api/voices/test`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        voice: 'typecast:tc_abc123',
+        text: '타입캐스트 목소리 테스트 문장입니다.',
+        typecastApiKey: 'tc-key',
+      }),
+    })
+    const data = await response.json()
+    expect(data.ok).toBe(true)
+    // 파일 경로는 안전한 이름을 쓰되, CLI에는 원본 typecast:<id>가 전달돼야 한다.
+    expect(calls[0].args).toContain('--voice')
+    expect(calls[0].args).toContain('typecast:tc_abc123')
+    expect(calls[0].args).toContain('--provider')
+    expect(calls[0].args).toContain('typecast')
+    expect(calls[0].env?.TYPECAST_API_KEY).toBe('tc-key')
+  })
+
+  it('passes a typecast voice and key through the story pipeline', async () => {
+    const calls = []
+    await startServer(async (call) => {
+      calls.push(call)
+      return { exitCode: 0, stdout: 'pipeline ok', stderr: '' }
+    })
+    const response = await fetch(`${baseUrl}/api/story-pipeline`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        projectName: 'typecast-pipeline',
+        script: '첫 문장입니다. 둘째 문장입니다.',
+        voice: 'typecast:tc_abc123',
+        ttsProvider: 'typecast',
+        typecastApiKey: 'tc-key',
+        imageProvider: 'mock',
+      }),
+    })
+    const data = await response.json()
+    expect(data.ok).toBe(true)
+    expect(calls[0].args).toContain('--tts-provider')
+    expect(calls[0].args).toContain('typecast')
+    expect(calls[0].args).toContain('typecast:tc_abc123')
+    expect(calls[0].env?.TYPECAST_API_KEY).toBe('tc-key')
+  })
+
+  it('proxies the typecast voice catalog with the api key header', async () => {
+    const { createServer: createHttpServer } = await import('node:http')
+    const upstream = createHttpServer((req, res) => {
+      if (req.headers['x-api-key'] !== 'tc-key') {
+        res.writeHead(401, { 'content-type': 'application/json' })
+        res.end(JSON.stringify({ message: 'unauthorized' }))
+        return
+      }
+      res.writeHead(200, { 'content-type': 'application/json' })
+      res.end(JSON.stringify([{ voice_id: 'tc_abc', voice_name: '민준', model: 'ssfm-v30' }]))
+    })
+    await new Promise((resolve) => upstream.listen(0, '127.0.0.1', resolve))
+    process.env.TYPECAST_API_BASE = `http://127.0.0.1:${upstream.address().port}`
+    try {
+      await startServer()
+      const response = await fetch(`${baseUrl}/api/typecast/voices`, {
+        headers: { 'x-typecast-key': 'tc-key' },
+      })
+      const data = await response.json()
+      expect(data.ok).toBe(true)
+      expect(data.voices[0]).toMatchObject({ id: 'tc_abc', name: '민준' })
+
+      const unauthorized = await fetch(`${baseUrl}/api/typecast/voices`, {
+        headers: { 'x-typecast-key': 'wrong' },
+      })
+      const unauthorizedData = await unauthorized.json()
+      expect(unauthorizedData.ok).toBe(false)
+    } finally {
+      delete process.env.TYPECAST_API_BASE
+      await new Promise((resolve) => upstream.close(resolve))
+    }
   })
 
   it('serves selectable narration styles to every UI', async () => {

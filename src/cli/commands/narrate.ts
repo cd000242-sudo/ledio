@@ -5,6 +5,7 @@ import { logger } from '../../utils/logger.js'
 import { resolveVoice } from '../../tts/voices.js'
 import { createQwen3Provider } from '../../tts/qwen3Provider.js'
 import { createMockProvider } from '../../tts/mockProvider.js'
+import { createTypecastProvider, TYPECAST_VOICE_PREFIX } from '../../tts/typecastProvider.js'
 import { splitNarrationText } from '../../tts/chunk.js'
 import { chunkCacheKey, lookupChunk, pruneChunkCache, storeChunk } from '../../tts/chunkCache.js'
 import {
@@ -89,6 +90,7 @@ async function polishNarrationWav(path: string): Promise<void> {
 
 export function pickProvider(name: string | undefined, workspaceRoot: string): TtsProvider {
   if (name === 'mock') return createMockProvider()
+  if (name === 'typecast') return createTypecastProvider()
   return createQwen3Provider({ workspaceRoot })
 }
 
@@ -98,18 +100,30 @@ export async function runNarrate(inputPath: string, options: NarrateOptions): Pr
   const input = resolve(inputPath)
   const ext = extname(input).toLowerCase()
 
+  // typecast:<voice_id> 목소리는 파일이 아니라 클라우드 성우 — 파일 해석을 건너뛴다.
+  const isTypecastVoice =
+    options.voice.startsWith(TYPECAST_VOICE_PREFIX) || options.provider === 'typecast'
   let voice
-  try {
-    voice = await resolveVoice(workspaceRoot, options.voice)
-  } catch (err) {
-    logger.error((err as Error).message)
-    return 1
-  }
-  if (!voice.refText) {
-    logger.warn('목소리 전사(.txt)가 없어 x-vector 모드로 진행합니다(품질 약간 낮음).')
+  if (isTypecastVoice) {
+    voice = {
+      refAudio: options.voice.startsWith(TYPECAST_VOICE_PREFIX)
+        ? options.voice
+        : `${TYPECAST_VOICE_PREFIX}${options.voice}`,
+      refText: undefined,
+    }
+  } else {
+    try {
+      voice = await resolveVoice(workspaceRoot, options.voice)
+    } catch (err) {
+      logger.error((err as Error).message)
+      return 1
+    }
+    if (!voice.refText) {
+      logger.warn('목소리 전사(.txt)가 없어 x-vector 모드로 진행합니다(품질 약간 낮음).')
+    }
   }
 
-  const provider = pickProvider(options.provider, workspaceRoot)
+  const provider = pickProvider(isTypecastVoice ? 'typecast' : options.provider, workspaceRoot)
   const language = options.language ?? 'Korean'
 
   let raw: string
@@ -207,11 +221,16 @@ export async function runNarrate(inputPath: string, options: NarrateOptions): Pr
   // 대본을 일부만 고친 재낭독도 바뀐 문장만 새로 만든다.
   const cacheDir = join(workspaceRoot, 'tmp', 'tts-cache')
   let voiceSignature = ''
-  try {
-    const info = await stat(voice.refAudio)
-    voiceSignature = `${voice.refAudio}|${info.size}|${Math.round(info.mtimeMs)}|${voice.refText ?? ''}`
-  } catch {
-    voiceSignature = ''
+  if (isTypecastVoice) {
+    // 클라우드 성우는 파일 정보가 없다 — 성우 id 자체가 서명이다.
+    voiceSignature = voice.refAudio
+  } else {
+    try {
+      const info = await stat(voice.refAudio)
+      voiceSignature = `${voice.refAudio}|${info.size}|${Math.round(info.mtimeMs)}|${voice.refText ?? ''}`
+    } catch {
+      voiceSignature = ''
+    }
   }
 
   const cachedResults: TtsItemResult[] = []
@@ -335,10 +354,13 @@ export async function runNarrate(inputPath: string, options: NarrateOptions): Pr
   }
 
   // 최종 낭독 폴리싱 — 또렷한 목소리와 일정한 음량(방송 기준)으로 다듬는다.
-  if (textFinalOut) {
-    await polishNarrationWav(textFinalOut)
-  } else if (storyboard) {
-    for (const generated of result.results) await polishNarrationWav(generated.out)
+  // 폴리싱 체인은 Qwen3 출력(고역 부재)에 맞춘 것 — 타입캐스트는 이미 방송 품질이라 건너뛴다.
+  if (!isTypecastVoice) {
+    if (textFinalOut) {
+      await polishNarrationWav(textFinalOut)
+    } else if (storyboard) {
+      for (const generated of result.results) await polishNarrationWav(generated.out)
+    }
   }
 
   // 스토리보드 모드: 나레이션 길이를 장면 길이에 반영한 사본을 만든다.

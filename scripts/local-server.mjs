@@ -816,6 +816,21 @@ function voiceNameFrom(value) {
   return cleaned || 'voice'
 }
 
+/** typecast:<voice_id> 형태의 클라우드 성우 목소리인지 확인한다. */
+function isTypecastVoice(value) {
+  return String(value ?? '').startsWith('typecast:')
+}
+
+/** CLI --voice 인자 — 타입캐스트 성우는 원본 id 그대로, 파일 목소리는 안전한 이름으로. */
+function cliVoiceArg(value) {
+  return isTypecastVoice(value) ? String(value).trim() : voiceNameFrom(value)
+}
+
+/** 요청 본문의 타입캐스트 키를 CLI 환경변수로 옮긴다(디스크/로그에 남기지 않는다). */
+function typecastEnvFrom(body) {
+  return body?.typecastApiKey ? { TYPECAST_API_KEY: String(body.typecastApiKey) } : {}
+}
+
 function ffmpegConvertToWav(inputPath, outputPath) {
   const ffmpeg = findExecutable('ffmpeg', 'FFMPEG_PATH') || 'ffmpeg'
   // 목소리 샘플용 정리 체인 — 복제 목소리의 원천이므로 여기가 제일 중요하다.
@@ -1512,6 +1527,45 @@ async function handleVoicesList(res, workspaceRoot) {
   sendJson(res, 200, { ok: true, voices })
 }
 
+/** 타입캐스트 성우 목록 프록시 — 키는 요청 헤더로만 받고 서버에 저장하지 않는다. */
+async function handleTypecastVoices(req, res) {
+  const apiKey = String(req.headers['x-typecast-key'] ?? '').trim()
+  if (!apiKey) {
+    sendJson(res, 400, { ok: false, error: '타입캐스트 API 키가 필요합니다. 환경설정에서 키를 입력하세요.' })
+    return
+  }
+  const apiBase = (process.env.TYPECAST_API_BASE ?? 'https://api.typecast.ai').replace(/\/+$/, '')
+  try {
+    const upstream = await fetch(`${apiBase}/v2/voices`, {
+      headers: { 'X-API-KEY': apiKey },
+      signal: AbortSignal.timeout(15_000),
+    })
+    if (!upstream.ok) {
+      sendJson(res, 200, {
+        ok: false,
+        error:
+          upstream.status === 401 || upstream.status === 403
+            ? '타입캐스트 API 키가 올바르지 않습니다. 환경설정에서 키를 확인하세요.'
+            : `타입캐스트 성우 목록을 가져오지 못했습니다(HTTP ${upstream.status}).`,
+      })
+      return
+    }
+    const parsed = await upstream.json()
+    const rawList = Array.isArray(parsed) ? parsed : Array.isArray(parsed?.voices) ? parsed.voices : []
+    const voices = rawList
+      .map((entry) => ({
+        id: String(entry.voice_id ?? entry.id ?? ''),
+        name: String(entry.voice_name ?? entry.name ?? entry.voice_id ?? ''),
+        ...(entry.model ? { model: String(entry.model) } : {}),
+        ...(Array.isArray(entry.emotions) ? { emotions: entry.emotions } : {}),
+      }))
+      .filter((voice) => voice.id)
+    sendJson(res, 200, { ok: true, voices })
+  } catch (error) {
+    sendJson(res, 200, { ok: false, error: `타입캐스트 연결 실패: ${error.message}` })
+  }
+}
+
 async function handleVoiceSave(req, res, workspaceRoot) {
   const body = await readJsonBody(req, 60 * 1024 * 1024)
   const name = voiceNameFrom(body.name)
@@ -1689,8 +1743,9 @@ async function handleVoiceTest(req, res, workspaceRoot, commandRunner) {
   const { rm } = await import('node:fs/promises')
   await rm(progressPath, { force: true })
 
-  const args = ['narrate', textFile, '--voice', voice, '--out-dir', testDir]
-  if (body.provider) args.push('--provider', String(body.provider))
+  const args = ['narrate', textFile, '--voice', cliVoiceArg(body.voice), '--out-dir', testDir]
+  if (isTypecastVoice(body.voice)) args.push('--provider', 'typecast')
+  else if (body.provider) args.push('--provider', String(body.provider))
 
   // 연출 분석 단계에서도 중지가 걸리게, 작업 시작 시점부터 등록한다.
   const track = { child: null, cancelled: false }
@@ -1733,6 +1788,7 @@ async function handleVoiceTest(req, res, workspaceRoot, commandRunner) {
       projectPath: textFile,
       workspaceRoot,
       args,
+      env: typecastEnvFrom(body),
       onSpawn: (child) => {
         track.child = child
       },
@@ -1816,10 +1872,17 @@ async function handleVoiceTest(req, res, workspaceRoot, commandRunner) {
 async function handleNarrate(req, res, workspaceRoot, commandRunner) {
   const body = await readJsonBody(req)
   const storyboardPath = resolveWorkspacePath(workspaceRoot, String(body.storyboardPath ?? ''))
-  const args = ['narrate', storyboardPath, '--voice', voiceNameFrom(body.voice)]
-  if (body.provider) args.push('--provider', String(body.provider))
+  const args = ['narrate', storyboardPath, '--voice', cliVoiceArg(body.voice)]
+  if (isTypecastVoice(body.voice)) args.push('--provider', 'typecast')
+  else if (body.provider) args.push('--provider', String(body.provider))
   if (body.outDir) args.push('--out-dir', resolveWorkspacePath(workspaceRoot, String(body.outDir)))
-  const result = await commandRunner({ command: 'narrate', projectPath: storyboardPath, workspaceRoot, args })
+  const result = await commandRunner({
+    command: 'narrate',
+    projectPath: storyboardPath,
+    workspaceRoot,
+    args,
+    env: typecastEnvFrom(body),
+  })
   sendJson(res, 200, {
     ok: result.exitCode === 0,
     exitCode: result.exitCode,
@@ -2081,9 +2144,13 @@ async function handleStoryPipeline(req, res, workspaceRoot, commandRunner) {
     '--image-provider',
     imageProvider,
     '--tts-provider',
-    body.ttsProvider === 'mock' ? 'mock' : 'qwen3',
+    body.ttsProvider === 'mock'
+      ? 'mock'
+      : body.ttsProvider === 'typecast' || isTypecastVoice(body.voice)
+        ? 'typecast'
+        : 'qwen3',
   ]
-  if (body.voice) args.push('--voice', voiceNameFrom(body.voice))
+  if (body.voice) args.push('--voice', cliVoiceArg(body.voice))
   if (body.imageModel) args.push('--image-model', String(body.imageModel))
   const motionMode = body.motionMode === 'hook' || body.motionMode === 'all' ? body.motionMode : 'none'
   if (motionMode !== 'none') {
@@ -2099,6 +2166,7 @@ async function handleStoryPipeline(req, res, workspaceRoot, commandRunner) {
 
   const env = imageProviderEnv(imageProvider, body)
   if (body.falApiKey) env.FAL_KEY = String(body.falApiKey)
+  Object.assign(env, typecastEnvFrom(body))
 
   const runnerCall = {
     command: 'story-pipeline',
@@ -2254,20 +2322,23 @@ async function handleProductPipeline(req, res, workspaceRoot, commandRunner) {
       ),
       'utf8',
     )
+    const narrationArgs = [
+      'narrate',
+      narrationTextPath,
+      '--voice',
+      cliVoiceArg(body.voice),
+      '--out-dir',
+      narrationDir,
+      '--delivery',
+      deliveryPath,
+    ]
+    if (isTypecastVoice(body.voice)) narrationArgs.push('--provider', 'typecast')
     const narrationResult = await commandRunner({
       command: 'narrate',
       projectPath: narrationTextPath,
       workspaceRoot,
-      args: [
-        'narrate',
-        narrationTextPath,
-        '--voice',
-        voiceNameFrom(body.voice),
-        '--out-dir',
-        narrationDir,
-        '--delivery',
-        deliveryPath,
-      ],
+      args: narrationArgs,
+      env: typecastEnvFrom(body),
     })
     if (narrationResult.exitCode !== 0) {
       sendJson(res, 200, {
@@ -2442,6 +2513,11 @@ export function createShortsFactoryServer(options = {}) {
 
       if (pathname === '/api/voices' && req.method === 'GET') {
         await handleVoicesList(res, workspaceRoot)
+        return
+      }
+
+      if (pathname === '/api/typecast/voices' && req.method === 'GET') {
+        await handleTypecastVoices(req, res)
         return
       }
 

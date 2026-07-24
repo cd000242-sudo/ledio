@@ -23,7 +23,7 @@ import {
 } from './edit-workbench.js';
 import { renderImageGalleryTab, renderNarrationStudioTab, renderScriptLibraryTab, renderStoryWizardTab } from './story-wizard.js';
 import { renderProductWizardTab } from './product-wizard.js';
-import { renderSettingsTab } from './settings.js';
+import { getSettings, renderSettingsTab } from './settings.js';
 
 const platformLabels = {
   youtube_shorts: '유튜브 쇼츠',
@@ -3902,14 +3902,23 @@ let voiceListRequested = false;
 function ensureVoiceList() {
   if (voiceListRequested) return;
   voiceListRequested = true;
-  fetch('/api/voices')
-    .then((response) => response.json())
-    .then((data) => {
+  const typecastKey = (getSettings().typecastApiKey || '').trim();
+  Promise.all([
+    fetch('/api/voices').then((response) => response.json()),
+    typecastKey
+      ? fetch('/api/typecast/voices', { headers: { 'x-typecast-key': typecastKey } })
+          .then((response) => response.json())
+          .catch(() => ({ voices: [] }))
+      : Promise.resolve({ voices: [] }),
+  ])
+    .then(([data, typecastData]) => {
       state.voiceList = data.voices ?? [];
+      state.typecastVoiceList = typecastData.ok ? (typecastData.voices ?? []) : [];
       renderAutomationDeck();
     })
     .catch(() => {
       state.voiceList = [];
+      state.typecastVoiceList = [];
     });
 }
 
@@ -3918,7 +3927,12 @@ async function playNarrateSample() {
   if (!voice) throw new Error('먼저 원클릭 제작 → 내 목소리에서 목소리를 등록하세요.');
   state.status = '음성 생성 중 (30초~1분)';
   refreshChrome();
-  const data = await apiPost('/api/voices/test', { voice, text: trimLine(ttsScriptPreview(), 200) });
+  const typecastKey = (getSettings().typecastApiKey || '').trim();
+  const data = await apiPost('/api/voices/test', {
+    voice,
+    text: trimLine(ttsScriptPreview(), 200),
+    ...(typecastKey ? { typecastApiKey: typecastKey } : {}),
+  });
   const audio = document.getElementById('autoNarrateAudio');
   if (audio) {
     audio.src = `${data.audioUrl}&t=${Date.now()}`;
@@ -3931,10 +3945,18 @@ async function playNarrateSample() {
 
 function voiceOptionListForAutomation() {
   const voices = Array.isArray(state.voiceList) ? state.voiceList : [];
-  if (voices.length === 0) return '<option value="">등록된 목소리 없음</option>';
-  return voices
+  const typecastVoices = Array.isArray(state.typecastVoiceList) ? state.typecastVoiceList : [];
+  if (voices.length === 0 && typecastVoices.length === 0) return '<option value="">등록된 목소리 없음</option>';
+  const mine = voices
     .map((voice) => `<option value="${escapeHtml(voice.name)}">${escapeHtml(voice.name)}</option>`)
     .join('');
+  const typecast =
+    typecastVoices.length === 0
+      ? ''
+      : `<optgroup label="🎭 타입캐스트 AI 성우">${typecastVoices
+          .map((voice) => `<option value="typecast:${escapeHtml(voice.id)}">${escapeHtml(voice.name)}</option>`)
+          .join('')}</optgroup>`;
+  return mine + typecast;
 }
 
 /** 텍스트 컷 편집: 자막 문장 목록. 문장 클릭=이동, × 클릭=그 구간을 영상에서 잘라냄. */

@@ -9,6 +9,7 @@ import { getSettings } from './settings.js';
 
 const state = {
   voices: [],
+  typecastVoices: [],
   selectedVoice: '',
   narrationStyles: [],
   narrationStyle: 'shopping-host',
@@ -48,6 +49,18 @@ async function loadData() {
   } catch {
     state.voices = [];
     state.narrationStyles = [];
+  }
+  // 환경설정에 타입캐스트 키가 있으면 AI 성우 목록도 함께 보여준다(실패는 조용히 무시).
+  const typecastKey = (getSettings().typecastApiKey || '').trim();
+  if (typecastKey) {
+    try {
+      const data = await api('/api/typecast/voices', { headers: { 'x-typecast-key': typecastKey } });
+      state.typecastVoices = data.voices || [];
+    } catch {
+      state.typecastVoices = [];
+    }
+  } else {
+    state.typecastVoices = [];
   }
 }
 
@@ -136,6 +149,7 @@ async function runProductPipeline(container) {
         directedNarration: state.directedNarration,
         scriptMethod,
         scriptApiKey: keyMap[scriptMethod] || '',
+        ...(settings.typecastApiKey ? { typecastApiKey: settings.typecastApiKey.trim() } : {}),
       }),
     });
     state.resultVideos = (data.videos || []).map(
@@ -152,6 +166,15 @@ async function runProductPipeline(container) {
 
 function voiceOptions() {
   const none = `<option value=""${state.selectedVoice === '' ? ' selected' : ''}>나레이션 없이(자막만)</option>`;
+  const typecast =
+    state.typecastVoices.length === 0
+      ? ''
+      : `<optgroup label="🎭 타입캐스트 AI 성우">${state.typecastVoices
+          .map(
+            (voice) =>
+              `<option value="typecast:${esc(voice.id)}"${`typecast:${voice.id}` === state.selectedVoice ? ' selected' : ''}>${esc(voice.name)}</option>`,
+          )
+          .join('')}</optgroup>`;
   return (
     none +
     state.voices
@@ -161,7 +184,8 @@ function voiceOptions() {
             voice.name,
           )}</option>`,
       )
-      .join('')
+      .join('') +
+    typecast
   );
 }
 

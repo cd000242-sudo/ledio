@@ -11,6 +11,7 @@ const defaults = {
   geminiApiKey: '',
   anthropicApiKey: '',
   falApiKey: '',
+  typecastApiKey: '',
   defaultVoice: '',
   // 채널 주인공 — 모든 쇼츠에서 같은 인물이 나오게 하는 고정 설정
   characterGender: '남성',
@@ -184,6 +185,7 @@ function render(container) {
         <label class="field-wide">Gemini API Key <input id="setGemini" type="password" value="${esc(s.geminiApiKey)}" /></label>
         <label class="field-wide">Claude API Key <input id="setAnthropic" type="password" value="${esc(s.anthropicApiKey)}" /></label>
         <label class="field-wide">fal.ai API Key (Seedance 영상화용) <input id="setFal" type="password" value="${esc(s.falApiKey)}" /></label>
+        <label class="field-wide">타입캐스트 API Key (AI 성우 낭독용) <input id="setTypecast" type="password" value="${esc(s.typecastApiKey)}" /></label>
         <p class="wiz-hint">💾 입력하는 즉시 자동 저장되고, 앱을 켤 때 자동으로 불러옵니다 — 저장 버튼이 필요 없어요. <span id="setKeySaved" class="key-saved-flash"></span></p>
       </section>
 
@@ -247,6 +249,7 @@ const KEY_LINKS = [
   { name: 'Google Gemini', keys: 'https://aistudio.google.com/apikey', billing: 'https://console.cloud.google.com/billing' },
   { name: 'Anthropic (Claude)', keys: 'https://console.anthropic.com/settings/keys', billing: 'https://console.anthropic.com/settings/billing' },
   { name: 'fal.ai (Seedance 영상화)', keys: 'https://fal.ai/dashboard/keys', billing: 'https://fal.ai/dashboard/billing' },
+  { name: '타입캐스트 (AI 성우 낭독)', keys: 'https://typecast.ai/developers/api', billing: 'https://biz.typecast.ai/org/overview' },
 ];
 
 let keyLinksModal = null;
@@ -314,6 +317,7 @@ function bind(container) {
   bindKey('#setGemini', 'geminiApiKey');
   bindKey('#setAnthropic', 'anthropicApiKey');
   bindKey('#setFal', 'falApiKey');
+  bindKey('#setTypecast', 'typecastApiKey');
   on('#setRefreshTools', 'click', () => refreshTools(container));
   on('#setAgentsRefresh', 'click', () => refreshAgents(container));
   on('#setClaudeLogin', 'click', () => agentLogin(container, 'claude'));

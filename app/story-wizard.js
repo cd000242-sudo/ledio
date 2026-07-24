@@ -50,6 +50,7 @@ function safeSrtName(title) {
 
 const wizard = {
   voices: [],
+  typecastVoices: [],
   templates: [],
   selectedVoice: '',
   selectedTemplate: '',
@@ -143,15 +144,69 @@ async function loadWizardData() {
     wizard.voices = voicesData.voices;
     wizard.templates = templatesData.templates;
     narrationStyles = stylesData.styles || [];
+    await loadTypecastVoices();
     if (!wizard.selectedVoice) {
       // 기본 목소리 설정이 있으면 그걸 먼저, 없으면 첫 번째 목소리.
       const preferred = getSettings().defaultVoice;
-      const found = wizard.voices.find((voice) => voice.name === preferred);
-      wizard.selectedVoice = found ? found.name : (wizard.voices[0]?.name ?? '');
+      if (isTypecastVoiceValue(preferred)) {
+        wizard.selectedVoice = preferred;
+      } else {
+        const found = wizard.voices.find((voice) => voice.name === preferred);
+        wizard.selectedVoice = found ? found.name : (wizard.voices[0]?.name ?? '');
+      }
     }
   } catch (error) {
     wizard.status = `불러오기 실패: ${error.message}`;
   }
+}
+
+/** typecast:<voice_id> 값(타입캐스트 AI 성우)인지 확인한다. */
+function isTypecastVoiceValue(value) {
+  return String(value ?? '').startsWith('typecast:');
+}
+
+/** 낭독 요청에 함께 보낼 타입캐스트 API 키(설정에 있을 때만). */
+function typecastKeyBody() {
+  const key = (getSettings().typecastApiKey || '').trim();
+  return key ? { typecastApiKey: key } : {};
+}
+
+/** 목소리 값의 표시 이름 — 타입캐스트 성우면 성우 이름, 아니면 그대로. */
+function voiceDisplayName(value) {
+  if (!isTypecastVoiceValue(value)) return value;
+  const id = String(value).slice('typecast:'.length);
+  const found = wizard.typecastVoices.find((voice) => voice.id === id);
+  return found ? `AI 성우 ${found.name}` : 'AI 성우';
+}
+
+/** 환경설정에 타입캐스트 키가 있으면 성우 목록을 불러온다(실패해도 조용히 넘어간다). */
+async function loadTypecastVoices() {
+  const key = (getSettings().typecastApiKey || '').trim();
+  if (!key) {
+    wizard.typecastVoices = [];
+    return;
+  }
+  try {
+    const data = await api('/api/typecast/voices', { headers: { 'x-typecast-key': key } });
+    wizard.typecastVoices = data.voices || [];
+  } catch {
+    wizard.typecastVoices = [];
+  }
+}
+
+/** 타입캐스트 성우 optgroup HTML — 목록이 없으면 빈 문자열. */
+function typecastOptionsHtml(selected) {
+  if (wizard.typecastVoices.length === 0) return '';
+  return (
+    '<optgroup label="🎭 타입캐스트 AI 성우">' +
+    wizard.typecastVoices
+      .map(
+        (voice) =>
+          `<option value="typecast:${esc(voice.id)}"${`typecast:${voice.id}` === selected ? ' selected' : ''}>${esc(voice.name)}</option>`,
+      )
+      .join('') +
+    '</optgroup>'
+  );
 }
 
 function fillTemplate(template, vars) {
@@ -451,7 +506,7 @@ async function testVoice(container) {
   const data = await api('/api/voices/test', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ voice: wizard.selectedVoice, sample: true }),
+    body: JSON.stringify({ voice: wizard.selectedVoice, sample: true, ...typecastKeyBody() }),
   });
   wizard.testAudioUrl = `${data.audioUrl}&t=${Date.now()}`;
   wizard.status = '테스트 음성 완성 — 아래에서 들어보세요.';
@@ -1009,7 +1064,7 @@ async function createStudioNarration(container) {
   const keepAs = studio.name.trim() || text.replace(/\s+/g, ' ').slice(0, 24);
   openVoiceModal(
     '낭독 생성 중',
-    `'${studio.voice}' 목소리에 '${narrationStyleLabel(studio.styleId)}' 말투를 적용하고 있어요.` +
+    `'${voiceDisplayName(studio.voice)}' 목소리에 '${narrationStyleLabel(studio.styleId)}' 말투를 적용하고 있어요.` +
       (studio.directed ? ' AI가 문장별 연출도 함께 잡습니다.' : ''),
     studio.voice,
   );
@@ -1033,6 +1088,7 @@ async function createStudioNarration(container) {
         method: wizard.scriptMethod,
         apiKey: keyMap[wizard.scriptMethod] || '',
         keepAs,
+        ...typecastKeyBody(),
       }),
     });
     finishVoiceModal({
@@ -1054,13 +1110,14 @@ async function createStudioNarration(container) {
 
 function studioCreatorHtml(voices) {
   const defaultVoice = getSettings().defaultVoice;
-  const options = voices
-    .map(
-      (voice) =>
-        `<option value="${esc(voice.name)}"${voice.name === studio.voice ? ' selected' : ''}>` +
-        `${voice.name === defaultVoice ? '⭐ ' : ''}${esc(voice.name)}</option>`,
-    )
-    .join('');
+  const options =
+    voices
+      .map(
+        (voice) =>
+          `<option value="${esc(voice.name)}"${voice.name === studio.voice ? ' selected' : ''}>` +
+          `${voice.name === defaultVoice ? '⭐ ' : ''}${esc(voice.name)}</option>`,
+      )
+      .join('') + typecastOptionsHtml(studio.voice);
   return `
     <section class="wizard-step">
       <h3>🎙 새 낭독 만들기</h3>
@@ -1101,14 +1158,16 @@ function studioCreatorHtml(voices) {
 /** 낭독 스튜디오 탭: 저장된 낭독을 듣고 속도/톤을 조절해 새 파일로 만든다. */
 export function renderNarrationStudioTab(container) {
   container.innerHTML = '<div class="wizard-panel"><p class="wiz-hint">낭독 목록을 불러오는 중...</p></div>';
-  Promise.all([api('/api/narrations'), api('/api/voices'), api('/api/narration-styles')])
+  Promise.all([api('/api/narrations'), api('/api/voices'), api('/api/narration-styles'), loadTypecastVoices()])
     .then(([data, voicesData, stylesData]) => {
       const narrations = data.narrations || [];
       const voices = voicesData.voices || [];
       narrationStyles = stylesData.styles || narrationStyles;
       if (!studio.voice) {
         const preferred = getSettings().defaultVoice;
-        studio.voice = voices.find((voice) => voice.name === preferred)?.name ?? voices[0]?.name ?? '';
+        studio.voice = isTypecastVoiceValue(preferred)
+          ? preferred
+          : (voices.find((voice) => voice.name === preferred)?.name ?? voices[0]?.name ?? '');
       }
       const listHtml =
         narrations.length === 0
@@ -1312,7 +1371,7 @@ async function listenScript(container) {
   if ([...text].length > 12000) throw new Error('대본이 너무 깁니다(12,000자 초과). 나눠서 낭독해 주세요.');
   openVoiceModal(
     '대본 낭독 생성 중',
-    `'${wizard.selectedVoice}' 목소리로 대본 전체를 읽고 있어요.` +
+    `'${voiceDisplayName(wizard.selectedVoice)}' 목소리로 대본 전체를 읽고 있어요.` +
       (wizard.directedNarration ? ' AI가 낭독 연출(완급·쉼)도 함께 잡습니다.' : '') +
       ' 대본이 길수록 오래 걸립니다.',
     wizard.selectedVoice,
@@ -1337,6 +1396,7 @@ async function listenScript(container) {
         method: wizard.scriptMethod,
         apiKey: keyMap[wizard.scriptMethod] || '',
         keepAs: `${wizard.topic || 'script'}-${Date.now().toString(36)}`,
+        ...typecastKeyBody(),
       }),
     });
     wizard.testAudioUrl = `${data.audioUrl}&t=${Date.now()}`;
@@ -1443,7 +1503,8 @@ async function runPipeline(container) {
         directedNarration: wizard.directedNarration,
         imageProvider: wizard.imageProvider,
         apiKey: imageApiKeyFromSettings() || undefined,
-        ttsProvider: 'qwen3',
+        ttsProvider: isTypecastVoiceValue(wizard.selectedVoice) ? 'typecast' : 'qwen3',
+        ...typecastKeyBody(),
         force: true,
         async: true,
       }),
@@ -1471,7 +1532,8 @@ function voiceOptions() {
           `<option value="${esc(voice.name)}"${voice.name === wizard.selectedVoice ? ' selected' : ''}>` +
           `${voice.name === defaultVoice ? '⭐ ' : ''}${esc(voice.name)}${voice.hasTranscript ? ' (테스트 대본 있음)' : ' ⚠️'}</option>`,
       )
-      .join('')
+      .join('') +
+    typecastOptionsHtml(wizard.selectedVoice)
   );
 }
 
@@ -1763,6 +1825,9 @@ function bindWizard(container) {
   }));
   on('#wizVoiceDeleteBtn', 'click', guard(async () => {
     if (!wizard.selectedVoice) throw new Error('삭제할 목소리를 먼저 선택해 주세요.');
+    if (isTypecastVoiceValue(wizard.selectedVoice)) {
+      throw new Error('타입캐스트 AI 성우는 삭제할 수 없습니다. 내가 등록한 목소리만 삭제됩니다.');
+    }
     const target = wizard.selectedVoice;
     if (!window.confirm(`'${target}' 목소리를 삭제할까요? 등록한 음성 샘플과 전사가 함께 지워집니다.`)) return;
     await api(`/api/voices/${encodeURIComponent(target)}`, { method: 'DELETE' });
@@ -1779,12 +1844,12 @@ function bindWizard(container) {
     if (check.exists) {
       wizard.status = '저장된 테스트 음성 — 바로 재생합니다. (목소리를 새로 등록하면 자동으로 다시 만듭니다)';
       renderWizard(c);
-      openAudioDock(check.url, `🔊 테스트 음성 — ${wizard.selectedVoice}`);
+      openAudioDock(check.url, `🔊 테스트 음성 — ${voiceDisplayName(wizard.selectedVoice)}`);
       return;
     }
     openVoiceModal(
       '테스트 음성 생성 중',
-      `'${wizard.selectedVoice}' 목소리로 샘플 문장을 읽고 있어요. 처음 한 번만 만들고 다음부터는 바로 재생됩니다.`,
+      `'${voiceDisplayName(wizard.selectedVoice)}' 목소리로 샘플 문장을 읽고 있어요. 처음 한 번만 만들고 다음부터는 바로 재생됩니다.`,
       `${wizard.selectedVoice}.sample`,
     );
     try {

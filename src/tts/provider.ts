@@ -6,7 +6,7 @@ export interface TtsItem {
 }
 
 export interface TtsRequest {
-  /** 내 목소리 참조 샘플(wav) 절대경로 */
+  /** 내 목소리 참조 샘플(wav) 절대경로, 또는 typecast:<voice_id> (타입캐스트 성우) */
   refAudio: string
   /** 참조 샘플에서 말한 문장(있으면 클로닝 품질 상승) */
   refText?: string
