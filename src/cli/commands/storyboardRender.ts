@@ -7,6 +7,8 @@ import {
   renderStoryImageClip,
   storyAssetBundleSchema,
 } from '../../modes/storyAssets.js'
+import { buildSceneCaptionCues } from '../../captions/sceneCues.js'
+import type { CaptionPosition } from '../../video/captionStyle.js'
 import { ensureFfmpeg } from '../../video/ffmpeg.js'
 import { logger } from '../../utils/logger.js'
 
@@ -16,6 +18,11 @@ interface StoryboardRenderOptions {
   motionDir?: string
   /** 배경음악 파일 경로. 최종 렌더에서 낮은 볼륨으로 깔린다. */
   bgm?: string
+  /** 자막 위치 재정의 — 지정하지 않으면 종전 하단 고정. */
+  captionPosition?: CaptionPosition
+  /** 지정하면 장면 나레이션을 이 글자수 이하 cue로 쪼개 TTS 타이밍에 맞춰 굽는다. */
+  captionMaxChars?: number
+  captionFontSize?: number
 }
 
 function pad2(value: number): string {
@@ -53,11 +60,21 @@ export async function runStoryboardRender(
         : ''
       const motionVideoPath = motionCandidate && existsSync(motionCandidate) ? motionCandidate : undefined
       const wide = bundle.ratio === '16:9'
+      // cue 모드: 장면 나레이션 전문을 짧은 조각으로 나눠 TTS 실측 길이 안에서 타이밍을 배분한다.
+      const captionCues = options.captionMaxChars
+        ? buildSceneCaptionCues(
+            [{ caption: scene.narration, durationSec: scene.durationSec }],
+            { maxChars: options.captionMaxChars },
+          )[0]
+        : undefined
       await renderStoryImageClip({
         imagePath: resolveInputPath(inputDir, scene.image),
         outPath: clipPath,
         durationSec: scene.durationSec,
         caption: scene.caption ?? scene.narration,
+        captionCues,
+        captionPosition: options.captionPosition,
+        captionFontSize: options.captionFontSize ?? (options.captionMaxChars ? 66 : undefined),
         narrationAudio: scene.narrationAudio
           ? resolveInputPath(inputDir, scene.narrationAudio)
           : undefined,

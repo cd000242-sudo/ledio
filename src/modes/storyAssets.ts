@@ -2,7 +2,9 @@ import { mkdir, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import { z } from 'zod'
 import { escapeFilterPath, resolveFontPath, runFfmpeg } from '../video/ffmpeg.js'
+import { captionYExpression, type CaptionPosition } from '../video/captionStyle.js'
 import type { ClipRole, Project } from '../config/schema.js'
+import type { SceneCaptionCue } from '../captions/sceneCues.js'
 import { wrapText } from '../utils/text.js'
 
 export const storyAssetSceneSchema = z.object({
@@ -38,6 +40,11 @@ export interface RenderStoryImageOptions {
   outPath: string
   durationSec: number
   caption?: string
+  /** 있으면 caption 대신 cue별로 시간 구간을 지정해 굽는다(TTS 동기 자막). */
+  captionCues?: SceneCaptionCue[]
+  /** 자막 위치. 지정하지 않으면 종전 하단 위치를 그대로 쓴다. */
+  captionPosition?: CaptionPosition
+  captionFontSize?: number
   fontPath?: string
   width?: number
   height?: number
@@ -187,6 +194,76 @@ export function buildStoryProjectFromAssets(
   }
 }
 
+export interface CaptionDrawtextInput {
+  caption?: string
+  /** 있으면 caption보다 우선한다 — cue별 enable 구간으로 굽는다. */
+  captionCues?: SceneCaptionCue[]
+  fontPath: string
+  /** 자막 텍스트 파일 이름의 밑동(예: `<outPath>.caption`). */
+  captionFileBase: string
+  height: number
+  /** 지정하지 않으면 종전 스토리 클립의 하단 위치(y=h-height*0.28)를 유지한다. */
+  position?: CaptionPosition
+  fontSize?: number
+  wrapChars?: number
+}
+
+function captionSec(value: number): string {
+  return Math.max(0, value).toFixed(3)
+}
+
+/**
+ * 장면 자막의 drawtext 필터와 텍스트 파일 목록을 만든다(순수 함수, 테스트 대상).
+ * cue가 없으면 종전과 동일한 "장면 전체에 자막 1개" 필터를 그대로 만든다.
+ */
+export function buildCaptionDrawtextFilters(input: CaptionDrawtextInput): {
+  files: Array<{ path: string; text: string }>
+  filters: string[]
+} {
+  const fontSize = input.fontSize ?? 48
+  const wrapChars = input.wrapChars ?? 18
+  const fontEsc = escapeFilterPath(input.fontPath)
+  const yExpr = input.position
+    ? captionYExpression(input.position, input.height)
+    : `h-${Math.round(input.height * 0.28)}`
+
+  const baseParams = (textFile: string) => [
+    `drawtext=fontfile='${fontEsc}'`,
+    `textfile='${escapeFilterPath(textFile)}'`,
+    'fontcolor=white',
+    `fontsize=${fontSize}`,
+    'box=1',
+    'boxcolor=black@0.58',
+    'boxborderw=18',
+    'line_spacing=12',
+    'x=(w-text_w)/2',
+    `y=${yExpr}`,
+  ]
+
+  if (input.captionCues && input.captionCues.length > 0) {
+    const files: Array<{ path: string; text: string }> = []
+    const filters: string[] = []
+    input.captionCues.forEach((cue, index) => {
+      const path = `${input.captionFileBase}.${String(index + 1).padStart(2, '0')}.txt`
+      files.push({ path, text: wrapText(cue.text, wrapChars) })
+      filters.push(
+        [...baseParams(path), `enable='between(t,${captionSec(cue.start)},${captionSec(cue.end)})'`].join(':'),
+      )
+    })
+    return { files, filters }
+  }
+
+  if (input.caption) {
+    const path = `${input.captionFileBase}.txt`
+    return {
+      files: [{ path, text: wrapText(input.caption, wrapChars) }],
+      filters: [baseParams(path).join(':')],
+    }
+  }
+
+  return { files: [], filters: [] }
+}
+
 export async function renderStoryImageClip(options: RenderStoryImageOptions): Promise<void> {
   const width = options.width ?? 1080
   const height = options.height ?? 1920
@@ -198,26 +275,21 @@ export async function renderStoryImageClip(options: RenderStoryImageOptions): Pr
     `fps=${fps}`,
   ]
 
-  if (options.caption) {
-    const captionFile = `${options.outPath}.caption.txt`
-    await mkdir(dirname(captionFile), { recursive: true })
-    await writeFile(captionFile, wrapText(options.caption, 18), 'utf8')
-    const fontPath = escapeFilterPath(options.fontPath ?? resolveFontPath())
-    const captionPath = escapeFilterPath(captionFile)
-    vfParts.push(
-      [
-        `drawtext=fontfile='${fontPath}'`,
-        `textfile='${captionPath}'`,
-        'fontcolor=white',
-        'fontsize=48',
-        'box=1',
-        'boxcolor=black@0.58',
-        'boxborderw=18',
-        'line_spacing=12',
-        'x=(w-text_w)/2',
-        `y=h-${Math.round(height * 0.28)}`,
-      ].join(':'),
-    )
+  const captionResult = buildCaptionDrawtextFilters({
+    caption: options.caption,
+    captionCues: options.captionCues,
+    fontPath: options.fontPath ?? resolveFontPath(),
+    captionFileBase: `${options.outPath}.caption`,
+    height,
+    position: options.captionPosition,
+    fontSize: options.captionFontSize,
+  })
+  if (captionResult.files.length > 0) {
+    await mkdir(dirname(options.outPath), { recursive: true })
+    for (const file of captionResult.files) {
+      await writeFile(file.path, file.text, 'utf8')
+    }
+    vfParts.push(...captionResult.filters)
   }
 
   await mkdir(dirname(options.outPath), { recursive: true })

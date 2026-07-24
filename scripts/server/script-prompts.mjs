@@ -144,7 +144,8 @@ export function scriptLineRule(durationSec) {
   if (durationSec >= 180) return '36~45문장'
   if (durationSec >= 120) return '24~30문장'
   if (durationSec >= 60) return '12~16문장'
-  return '6~8문장'
+  if (durationSec >= 30) return '6~8문장'
+  return '4~6문장'
 }
 
 // 모든 대본의 공통 목적 — 쇼츠 영상 위에 목소리로 얹는 낭독용.
@@ -194,6 +195,57 @@ export function seriesArcPrompt(topic, episode, totalEpisodes, previousScripts, 
     `${context} ${durationSec}초 분량, 규칙: ${lineRule}, 한 줄에 한 문장(각 줄이 한 장면), 첫 문장은 후킹. ${ending}` +
     `${STYLE_RULES} ${COHERENCE_RULES} 대본 본문만 출력하고 화수 표기나 설명은 붙이지 마.`
   )
+}
+
+/** 쿠팡 상품 캡처 → 15~20초 바이럴 쇼핑쇼츠 대본. 사용욕구·구매욕구 자극 + CTA 구조. */
+export function coupangViralPrompt(productInfo = {}, durationSec = 18, tone = '') {
+  const productName = String(productInfo.productName ?? '').trim() || '이 제품'
+  const benefit = String(productInfo.benefit ?? '').trim()
+  const painPoint = String(productInfo.painPoint ?? '').trim()
+  const pricePoint = String(productInfo.pricePoint ?? '').trim()
+  const lineRule = scriptLineRule(durationSec)
+  return (
+    `너는 조회수 천만을 만드는 커머스 쇼츠 카피라이터야. 상품: "${productName}".` +
+    `${benefit ? ` 핵심 장점: ${benefit}.` : ''}` +
+    `${painPoint ? ` 해결하는 불편: ${painPoint}.` : ''}` +
+    `${pricePoint ? ` 가격·혜택 포인트: ${pricePoint}.` : ''}` +
+    `${NARRATION_TARGET}${toneSpec(tone)} ` +
+    `${durationSec}초 분량의 한국어 쇼핑쇼츠 대본을 써줘. 규칙: ${lineRule}, 한 줄에 한 문장(각 줄이 한 장면). ` +
+    '구조: ① 첫 문장은 3초 안에 시선을 붙잡는 후킹(불편 공감 또는 충격 결과 — 상품명 금지), ' +
+    '② 중간 문장들은 사용 장면이 눈앞에 그려지게(사용욕구) + 전후 변화가 느껴지게(구매욕구), ' +
+    '③ 마지막 문장은 지금 확인하고 싶어지는 CTA(가격·혜택 포인트가 있으면 여기서 활용). ' +
+    '과장 광고 문구(무조건, 100%, 최저가 보장)는 금지, 짧고 리듬감 있는 구어체.' +
+    `${STYLE_RULES} 대본 본문만 출력하고 설명은 붙이지 마.`
+  )
+}
+
+/** 쿠팡 상품 캡처 이미지에서 대본 재료를 뽑는 비전 프롬프트. */
+export function coupangVisionPrompt() {
+  return (
+    '첨부한 이미지는 쿠팡 상품 페이지 캡처다. 대본 작성에 쓸 정보를 추출해서 JSON 하나만 출력하라(설명·코드펜스 금지). ' +
+    '형식: {"productName":"상품명(간결하게)","benefit":"가장 강력한 핵심 장점 1~2개","painPoint":"이 상품이 해결하는 일상 불편","pricePoint":"가격·할인·혜택 포인트(보이면)"} ' +
+    '이미지에서 확인할 수 없는 필드는 빈 문자열로 둔다. 과장하지 말고 캡처에 실제로 보이는 정보만 쓴다.'
+  )
+}
+
+/** 비전 응답에서 상품정보 JSON을 관대하게 꺼낸다. 실패하면 null. */
+export function parseCoupangProductInfo(raw) {
+  try {
+    const text = String(raw ?? '')
+    const start = text.indexOf('{')
+    const end = text.lastIndexOf('}')
+    if (start < 0 || end <= start) return null
+    const parsed = JSON.parse(text.slice(start, end + 1))
+    if (typeof parsed !== 'object' || parsed === null) return null
+    return {
+      productName: String(parsed.productName ?? '').trim(),
+      benefit: String(parsed.benefit ?? '').trim(),
+      painPoint: String(parsed.painPoint ?? '').trim(),
+      pricePoint: String(parsed.pricePoint ?? '').trim(),
+    }
+  } catch {
+    return null
+  }
 }
 
 export function splitSentencesForDelivery(text) {

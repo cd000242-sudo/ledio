@@ -8,6 +8,10 @@ export const storyImageGenerationInputSchema = storyProjectSchema.extend({
   productName: z.string().min(1).default('Story Channel'),
   affiliateUrl: z.string().url().default('https://example.com/story'),
   sceneDurationSec: z.number().positive().default(4),
+  /** 사용자 참조 이미지(절대경로) — 있으면 캐릭터/세트 시트 자동 생성을 생략하고 이를 참조로 쓴다(예: 쿠팡 상품 캡처). */
+  referenceImages: z.array(z.string().min(1)).default([]),
+  /** 스토리보드에 실을 고지 문구(예: 쿠팡파트너스 대가성 고지). 최종 렌더 하단 자막으로 구워진다. */
+  disclosure: z.string().min(1).optional(),
 })
 
 export type StoryImageGenerationInput = z.input<typeof storyImageGenerationInputSchema>
@@ -59,6 +63,8 @@ interface OpenAIResponseBody {
 export interface OpenAIImageProviderOptions {
   apiKey: string
   model?: string
+  /** image_generation 툴의 이미지 모델 지정(예: gpt-image-2 = "덕테이프"). 없으면 기본 모델. */
+  imageToolModel?: string
   fetchImpl?: FetchLike
 }
 
@@ -119,6 +125,26 @@ function normalizeBase64(value: string): string {
   return value.replace(/^data:image\/[a-z0-9.+-]+;base64,/i, '').trim()
 }
 
+function imageMimeType(path: string): string {
+  const ext = path.toLowerCase().split('.').pop() ?? ''
+  if (ext === 'jpg' || ext === 'jpeg') return 'image/jpeg'
+  if (ext === 'webp') return 'image/webp'
+  if (ext === 'gif') return 'image/gif'
+  return 'image/png'
+}
+
+async function readReferenceImages(
+  paths: string[] | undefined,
+): Promise<Array<{ base64: string; mimeType: string }>> {
+  if (!paths || paths.length === 0) return []
+  const images: Array<{ base64: string; mimeType: string }> = []
+  for (const path of paths) {
+    const data = await readFile(path)
+    images.push({ base64: data.toString('base64'), mimeType: imageMimeType(path) })
+  }
+  return images
+}
+
 export function extractOpenAIImageBase64(response: unknown): string {
   const body = response as OpenAIResponseBody
   const output = Array.isArray(body.output) ? (body.output as OpenAIResponseOutput[]) : []
@@ -164,14 +190,34 @@ export class OpenAIResponsesImageProvider implements ImageGenerationProvider {
   readonly #apiKey: string
   readonly #fetchImpl: FetchLike
 
+  readonly #imageToolModel?: string
+
   constructor(options: OpenAIImageProviderOptions) {
     if (!options.apiKey.trim()) throw new Error('OPENAI_API_KEY is required for GPT image generation.')
     this.model = options.model ?? 'gpt-5.5'
     this.#apiKey = options.apiKey
+    this.#imageToolModel = options.imageToolModel
     this.#fetchImpl = options.fetchImpl ?? fetch
   }
 
-  async generateImage(prompt: string): Promise<Buffer> {
+  async generateImage(prompt: string, options?: { referenceImagePaths?: string[] }): Promise<Buffer> {
+    const references = await readReferenceImages(options?.referenceImagePaths)
+    // 참조 이미지가 있으면 멀티모달 입력, 없으면 종전과 동일한 문자열 입력을 유지한다.
+    const input =
+      references.length === 0
+        ? prompt
+        : [
+            {
+              role: 'user',
+              content: [
+                { type: 'input_text', text: prompt },
+                ...references.map((image) => ({
+                  type: 'input_image',
+                  image_url: `data:${image.mimeType};base64,${image.base64}`,
+                })),
+              ],
+            },
+          ]
     const response = await this.#fetchImpl('https://api.openai.com/v1/responses', {
       method: 'POST',
       headers: {
@@ -180,8 +226,8 @@ export class OpenAIResponsesImageProvider implements ImageGenerationProvider {
       },
       body: JSON.stringify({
         model: this.model,
-        input: prompt,
-        tools: [{ type: 'image_generation' }],
+        input,
+        tools: [{ type: 'image_generation', ...(this.#imageToolModel ? { model: this.#imageToolModel } : {}) }],
       }),
     })
     const raw = await response.text()
@@ -206,7 +252,8 @@ export class GeminiImageProvider implements ImageGenerationProvider {
     this.#fetchImpl = options.fetchImpl ?? fetch
   }
 
-  async generateImage(prompt: string): Promise<Buffer> {
+  async generateImage(prompt: string, options?: { referenceImagePaths?: string[] }): Promise<Buffer> {
+    const references = await readReferenceImages(options?.referenceImagePaths)
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(
       this.model,
     )}:generateContent?key=${encodeURIComponent(this.#apiKey)}`
@@ -216,7 +263,17 @@ export class GeminiImageProvider implements ImageGenerationProvider {
         'content-type': 'application/json',
       },
       body: JSON.stringify({
-        contents: [{ role: 'user', parts: [{ text: prompt }] }],
+        contents: [
+          {
+            role: 'user',
+            parts: [
+              { text: prompt },
+              ...references.map((image) => ({
+                inline_data: { mime_type: image.mimeType, data: image.base64 },
+              })),
+            ],
+          },
+        ],
       }),
     })
     const raw = await response.text()
@@ -320,10 +377,13 @@ export async function generateStoryImages(
   const imagesDir = join(options.outDir, 'images')
   await mkdir(imagesDir, { recursive: true })
 
+  // 사용자 참조(예: 쿠팡 상품 캡처)가 있으면 캐릭터/세트 시트 자동 생성을 건너뛰고 이를 그대로 참조로 쓴다.
+  const userReferences = project.referenceImages
+
   // 인물 고정: 참조 이미지를 지원하는 생성기면 주인공 초상(캐릭터 시트)을 먼저 만들고,
   // 모든 장면이 그 이미지를 참조해 같은 얼굴·머리·의상으로 그려지게 한다.
   let characterRefPath: string | undefined
-  if (project.character && options.provider.supportsReference) {
+  if (userReferences.length === 0 && project.character && options.provider.supportsReference) {
     // 초상도 대본의 톤·분위기를 따라간다(공포면 서늘한 조명, 밝은 주제면 밝은 톤) —
     // 단, 참조로 쓸 수 있게 얼굴은 또렷하게.
     const characterPrompt = [
@@ -342,7 +402,7 @@ export async function generateStoryImages(
   // 세트 고정: 세트 시트(world)가 있으면 주 무대의 설정샷(사람 없는 빈 장소)을 만들어
   // 모든 장면이 같은 문·복도·건물을 그대로 쓰게 참조로 넘긴다.
   let setRefPath: string | undefined
-  if (options.world && options.provider.supportsReference) {
+  if (userReferences.length === 0 && options.world && options.provider.supportsReference) {
     const setPrompt = [
       `establishing shot of the main recurring location of this story: ${options.world}`,
       'empty scene, no people, photorealistic',
@@ -358,20 +418,27 @@ export async function generateStoryImages(
     await writeFile(setRefPath, setShot)
   }
 
-  const referencePaths = [characterRefPath, setRefPath].filter(Boolean) as string[]
+  const referencePaths =
+    userReferences.length > 0
+      ? userReferences
+      : ([characterRefPath, setRefPath].filter(Boolean) as string[])
   const referenceNote =
-    referencePaths.length > 0
-      ? [
-          characterRefPath
-            ? 'the main character must be the exact same person as in the attached character reference image: identical face, hairstyle and outfit'
-            : '',
-          setRefPath
-            ? 'recurring locations must exactly match the attached location reference image: same door, same hallway, same building, same lighting fixtures'
-            : '',
-        ]
-          .filter(Boolean)
-          .join(', ')
-      : ''
+    userReferences.length > 0
+      ? project.promptProfile === 'product'
+        ? 'the product must look exactly identical to the attached product reference photos: same shape, color, logo, materials and proportions'
+        : 'match the attached reference images exactly: keep the same subjects, faces, objects and visual details'
+      : referencePaths.length > 0
+        ? [
+            characterRefPath
+              ? 'the main character must be the exact same person as in the attached character reference image: identical face, hairstyle and outfit'
+              : '',
+            setRefPath
+              ? 'recurring locations must exactly match the attached location reference image: same door, same hallway, same building, same lighting fixtures'
+              : '',
+          ]
+            .filter(Boolean)
+            .join(', ')
+        : ''
 
   const generated: GeneratedStoryImage[] = []
   for (const scene of scenes) {
@@ -396,6 +463,7 @@ export async function generateStoryImages(
     title: project.title,
     productName: project.productName,
     affiliateUrl: project.affiliateUrl,
+    ...(project.disclosure ? { disclosure: project.disclosure } : {}),
     imageRights: 'ai_generated' as const,
     ratio: project.ratio,
     scenes: generated.map((image) => ({

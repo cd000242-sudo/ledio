@@ -1,4 +1,4 @@
-/* global Buffer, fetch, process, setTimeout */
+/* global Buffer, Response, fetch, process, setTimeout */
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -639,6 +639,154 @@ describe('local server API', () => {
     expect(calls[0].args).toContain('typecast')
     expect(calls[0].args).toContain('typecast:tc_abc123')
     expect(calls[0].env?.TYPECAST_API_KEY).toBe('tc-key')
+  })
+
+  it('coupang analyze: 캡처 없이 요청하면 400', async () => {
+    await startServer()
+    const response = await fetch(`${baseUrl}/api/coupang/analyze`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ projectName: 'coupang-x', images: [] }),
+    })
+    expect(response.status).toBe(400)
+  })
+
+  it('coupang analyze: 프로젝트 밖 경로는 403', async () => {
+    await startServer()
+    const response = await fetch(`${baseUrl}/api/coupang/analyze`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ projectName: 'coupang-x', images: ['../../secret.png'] }),
+    })
+    expect(response.status).toBe(403)
+  })
+
+  it('coupang analyze: 캡처를 비전 API로 보내 상품정보 JSON을 받는다', async () => {
+    await startServer()
+    const { mkdir: mkdirp, writeFile: write } = await import('node:fs/promises')
+    const imagesDir = join(workspaceRoot, 'projects', 'coupang-vision', 'images')
+    await mkdirp(imagesDir, { recursive: true })
+    await write(join(imagesDir, 'capture.png'), Buffer.from('fake-png'))
+
+    const upstreamBodies = []
+    const realFetch = globalThis.fetch
+    globalThis.fetch = async (url, init) => {
+      if (String(url).includes('api.openai.com')) {
+        upstreamBodies.push(JSON.parse(init.body))
+        return new Response(
+          JSON.stringify({
+            choices: [
+              {
+                message: {
+                  content:
+                    '{"productName":"접이식 선반","benefit":"수납 2배","painPoint":"좁은 주방","pricePoint":"오늘 40% 할인"}',
+                },
+              },
+            ],
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        )
+      }
+      return realFetch(url, init)
+    }
+    try {
+      const response = await fetch(`${baseUrl}/api/coupang/analyze`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          projectName: 'coupang-vision',
+          images: ['images/capture.png'],
+          method: 'api-gpt',
+          apiKey: 'test-key',
+        }),
+      })
+      const data = await response.json()
+      expect(data.ok).toBe(true)
+      expect(data.productInfo).toMatchObject({ productName: '접이식 선반', benefit: '수납 2배' })
+      // 비전 본문에 이미지가 실렸는지
+      const content = upstreamBodies[0]?.messages?.[0]?.content
+      expect(Array.isArray(content)).toBe(true)
+      expect(content.some((part) => part.type === 'image_url')).toBe(true)
+    } finally {
+      globalThis.fetch = realFetch
+    }
+  })
+
+  it('coupang 모드 대본 생성은 커머스 프롬프트를 쓴다', async () => {
+    await startServer()
+    const prompts = []
+    const realFetch = globalThis.fetch
+    globalThis.fetch = async (url, init) => {
+      if (String(url).includes('api.openai.com')) {
+        const body = JSON.parse(init.body)
+        prompts.push(String(body.messages?.[0]?.content ?? ''))
+        return new Response(
+          JSON.stringify({ choices: [{ message: { content: '후킹 문장입니다. 사용 장면입니다. 변화 문장입니다. 지금 확인하세요.' } }] }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        )
+      }
+      return realFetch(url, init)
+    }
+    try {
+      const response = await fetch(`${baseUrl}/api/script/generate`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          mode: 'coupang',
+          productInfo: { productName: '접이식 선반', benefit: '수납 2배', painPoint: '좁은 주방' },
+          method: 'api-gpt',
+          apiKey: 'test-key',
+          durationSec: 18,
+        }),
+      })
+      const data = await response.json()
+      expect(data.ok).toBe(true)
+      expect(data.script.length).toBeGreaterThan(0)
+      expect(prompts.some((prompt) => prompt.includes('커머스 쇼츠 카피라이터') && prompt.includes('접이식 선반'))).toBe(true)
+    } finally {
+      globalThis.fetch = realFetch
+    }
+  })
+
+  it('story-pipeline이 상품 프로파일·참조 이미지·센터 자막 옵션을 전달한다', async () => {
+    const calls = []
+    await startServer(async (call) => {
+      calls.push(call)
+      return { exitCode: 0, stdout: 'pipeline ok', stderr: '' }
+    })
+    const { mkdir: mkdirp, writeFile: write } = await import('node:fs/promises')
+    const imagesDir = join(workspaceRoot, 'projects', 'coupang-pipe', 'images')
+    await mkdirp(imagesDir, { recursive: true })
+    await write(join(imagesDir, 'cap.png'), Buffer.from('fake'))
+
+    const response = await fetch(`${baseUrl}/api/story-pipeline`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        projectName: 'coupang-pipe',
+        script: '후킹 문장입니다. 사용 장면입니다.',
+        imageProvider: 'mock',
+        ttsProvider: 'mock',
+        promptProfile: 'product',
+        referenceImages: ['images/cap.png'],
+        disclosure: '이 포스팅은 쿠팡 파트너스 활동의 일환으로, 이에 따른 일정액의 수수료를 제공받습니다.',
+        captionPosition: 'center',
+        captionMaxChars: 12,
+        maxSceneChars: 20,
+      }),
+    })
+    const data = await response.json()
+    expect(data.ok).toBe(true)
+    const args = calls[0].args
+    expect(args).toContain('--caption-position')
+    expect(args[args.indexOf('--caption-position') + 1]).toBe('center')
+    expect(args).toContain('--caption-max-chars')
+    expect(args[args.indexOf('--caption-max-chars') + 1]).toBe('12')
+
+    const yaml = await readFile(join(workspaceRoot, 'projects', 'coupang-pipe', 'story-input.yaml'), 'utf8')
+    expect(yaml).toContain('promptProfile: product')
+    expect(yaml).toContain('cap.png')
+    expect(yaml).toContain('쿠팡 파트너스')
   })
 
   it('proxies the typecast voice catalog with the api key header', async () => {

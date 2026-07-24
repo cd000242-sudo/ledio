@@ -247,6 +247,138 @@ describe('image generation', () => {
     expect(calls.length).toBe(2)
   })
 
+  it('OpenAI에 참조 이미지를 주면 input_image가 포함된 멀티모달 입력을 보낸다', async () => {
+    const outDir = await makeTempRoot()
+    const refPath = join(outDir, 'product.png')
+    const { writeFile } = await import('node:fs/promises')
+    await writeFile(refPath, Buffer.from('fake-png-bytes'))
+
+    const base64 = Buffer.from('openai-image').toString('base64')
+    const calls: Array<{ body: Record<string, unknown> }> = []
+    const provider = new OpenAIResponsesImageProvider({
+      apiKey: 'test-key',
+      imageToolModel: 'gpt-image-2',
+      fetchImpl: async (_url, init) => {
+        calls.push({ body: JSON.parse(init.body) as Record<string, unknown> })
+        return {
+          ok: true,
+          status: 200,
+          text: async () => JSON.stringify({ output: [{ type: 'image_generation_call', result: base64 }] }),
+        }
+      },
+    })
+
+    await provider.generateImage('product scene', { referenceImagePaths: [refPath] })
+
+    const input = calls[0]?.body.input as Array<{ role: string; content: Array<Record<string, unknown>> }>
+    expect(Array.isArray(input)).toBe(true)
+    const content = input[0]?.content ?? []
+    expect(content.some((part) => part.type === 'input_text' && part.text === 'product scene')).toBe(true)
+    expect(
+      content.some(
+        (part) => part.type === 'input_image' && String(part.image_url).startsWith('data:image/png;base64,'),
+      ),
+    ).toBe(true)
+    const tools = calls[0]?.body.tools as Array<Record<string, unknown>>
+    expect(tools[0]).toMatchObject({ type: 'image_generation', model: 'gpt-image-2' })
+  })
+
+  it('참조가 없으면 OpenAI 입력은 종전처럼 문자열이다', async () => {
+    const base64 = Buffer.from('openai-image').toString('base64')
+    const calls: Array<{ body: Record<string, unknown> }> = []
+    const provider = new OpenAIResponsesImageProvider({
+      apiKey: 'test-key',
+      fetchImpl: async (_url, init) => {
+        calls.push({ body: JSON.parse(init.body) as Record<string, unknown> })
+        return {
+          ok: true,
+          status: 200,
+          text: async () => JSON.stringify({ output: [{ type: 'image_generation_call', result: base64 }] }),
+        }
+      },
+    })
+    await provider.generateImage('plain scene')
+    expect(calls[0]?.body.input).toBe('plain scene')
+    expect(calls[0]?.body.tools).toEqual([{ type: 'image_generation' }])
+  })
+
+  it('Gemini에 참조 이미지를 주면 inline_data 파트가 포함된다', async () => {
+    const outDir = await makeTempRoot()
+    const refPath = join(outDir, 'product.jpg')
+    const { writeFile } = await import('node:fs/promises')
+    await writeFile(refPath, Buffer.from('fake-jpg-bytes'))
+
+    const base64 = Buffer.from('gemini-image').toString('base64')
+    const calls: Array<{ body: Record<string, unknown> }> = []
+    const provider = new GeminiImageProvider({
+      apiKey: 'gemini-key',
+      fetchImpl: async (_url, init) => {
+        calls.push({ body: JSON.parse(init.body) as Record<string, unknown> })
+        return {
+          ok: true,
+          status: 200,
+          text: async () =>
+            JSON.stringify({ candidates: [{ content: { parts: [{ inlineData: { data: base64 } }] } }] }),
+        }
+      },
+    })
+
+    await provider.generateImage('product scene', { referenceImagePaths: [refPath] })
+
+    const contents = calls[0]?.body.contents as Array<{ parts: Array<Record<string, unknown>> }>
+    const parts = contents[0]?.parts ?? []
+    expect(parts.some((part) => 'text' in part)).toBe(true)
+    const inline = parts.find((part) => 'inline_data' in part)?.inline_data as
+      | Record<string, unknown>
+      | undefined
+    expect(inline?.mime_type).toBe('image/jpeg')
+    expect(typeof inline?.data).toBe('string')
+  })
+
+  it('사용자 referenceImages가 있으면 시트 자동생성 없이 모든 장면이 그 참조를 쓴다', async () => {
+    const outDir = await makeTempRoot()
+    const refA = join(outDir, 'capture-1.png')
+    const refB = join(outDir, 'capture-2.png')
+    const { writeFile } = await import('node:fs/promises')
+    await writeFile(refA, Buffer.from('a'))
+    await writeFile(refB, Buffer.from('b'))
+
+    const calls: Array<{ prompt: string; refs?: string[] }> = []
+    const provider = {
+      name: 'fake-ref',
+      model: 'fake-model',
+      supportsReference: true,
+      async generateImage(prompt: string, options?: { referenceImagePaths?: string[] }) {
+        calls.push({ prompt, refs: options?.referenceImagePaths })
+        return Buffer.from('png')
+      },
+    }
+    const result = await generateStoryImages(
+      {
+        projectName: 'coupang-test',
+        title: '접이식 선반',
+        script: '첫 문장입니다. 둘째 문장입니다.',
+        maxSceneChars: 10,
+        character: '무시되어야 하는 캐릭터',
+        promptProfile: 'product',
+        referenceImages: [refA, refB],
+        disclosure: '이 포스팅은 쿠팡 파트너스 활동의 일환으로, 이에 따른 일정액의 수수료를 제공받습니다.',
+      },
+      { outDir, provider },
+    )
+
+    // 시트 자동생성 없음 — 장면 수만큼만 호출
+    expect(calls.length).toBe(2)
+    for (const call of calls) {
+      expect(call.refs).toEqual([refA, refB])
+      expect(call.prompt).toContain('reference photos')
+    }
+    const storyboard = JSON.parse(await readFile(result.storyboardPath, 'utf8')) as {
+      disclosure?: string
+    }
+    expect(storyboard.disclosure).toContain('쿠팡 파트너스')
+  })
+
   it('generates storyboard files with a mock provider', async () => {
     const outDir = await makeTempRoot()
 

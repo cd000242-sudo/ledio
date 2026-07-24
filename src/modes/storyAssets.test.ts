@@ -1,9 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import {
+  buildCaptionDrawtextFilters,
   buildStoryClipArgs,
   buildStoryProjectFromAssets,
   storyAssetSceneSchema,
 } from './storyAssets.js'
+import { escapeFilterPath } from '../video/ffmpeg.js'
+import { wrapText } from '../utils/text.js'
 
 const storyboard = {
   projectName: 'midnight-story',
@@ -125,5 +128,80 @@ describe('buildStoryClipArgs', () => {
     expect(args).toContain('m.mp4')
     expect(args).toContain('n1.wav')
     expect(args.join(' ')).toContain('apad')
+  })
+})
+
+describe('buildCaptionDrawtextFilters', () => {
+  const fontPath = 'C:/Windows/Fonts/malgun.ttf'
+
+  it('단일 caption 기본 경로는 종전 drawtext 문자열과 완전히 동일하다', () => {
+    const result = buildCaptionDrawtextFilters({
+      caption: '한 문장짜리 자막입니다',
+      fontPath,
+      captionFileBase: 'out.mp4.caption',
+      height: 1920,
+    })
+    expect(result.files).toEqual([
+      { path: 'out.mp4.caption.txt', text: wrapText('한 문장짜리 자막입니다', 18) },
+    ])
+    expect(result.filters).toEqual([
+      [
+        `drawtext=fontfile='${escapeFilterPath(fontPath)}'`,
+        `textfile='${escapeFilterPath('out.mp4.caption.txt')}'`,
+        'fontcolor=white',
+        'fontsize=48',
+        'box=1',
+        'boxcolor=black@0.58',
+        'boxborderw=18',
+        'line_spacing=12',
+        'x=(w-text_w)/2',
+        'y=h-538',
+      ].join(':'),
+    ])
+  })
+
+  it('cue 배열이 있으면 cue별 enable 구간과 파일이 생긴다', () => {
+    const result = buildCaptionDrawtextFilters({
+      captionCues: [
+        { text: '첫 조각', start: 0, end: 1.5 },
+        { text: '둘째 조각', start: 1.5, end: 4.2 },
+      ],
+      fontPath,
+      captionFileBase: 'out.mp4.caption',
+      height: 1920,
+      position: 'center',
+      fontSize: 66,
+    })
+    expect(result.files.map((file) => file.path)).toEqual([
+      'out.mp4.caption.01.txt',
+      'out.mp4.caption.02.txt',
+    ])
+    expect(result.files[0]?.text).toBe('첫 조각')
+    expect(result.filters).toHaveLength(2)
+    expect(result.filters[0]).toContain("enable='between(t,0.000,1.500)'")
+    expect(result.filters[1]).toContain("enable='between(t,1.500,4.200)'")
+    expect(result.filters[0]).toContain('y=(h-text_h)/2')
+    expect(result.filters[0]).toContain('fontsize=66')
+  })
+
+  it('position을 지정하면 단일 caption도 해당 위치로 간다', () => {
+    const result = buildCaptionDrawtextFilters({
+      caption: '센터 자막',
+      fontPath,
+      captionFileBase: 'x.caption',
+      height: 1920,
+      position: 'center',
+    })
+    expect(result.filters[0]).toContain('y=(h-text_h)/2')
+  })
+
+  it('caption도 cue도 없으면 빈 결과', () => {
+    const result = buildCaptionDrawtextFilters({
+      fontPath,
+      captionFileBase: 'x.caption',
+      height: 1920,
+    })
+    expect(result.files).toEqual([])
+    expect(result.filters).toEqual([])
   })
 })

@@ -209,12 +209,14 @@ program
   .option('--voice <name>', 'voices/<이름>.wav (없으면 나레이션 생략)')
   .option('--image-provider <provider>', 'gpt|gemini|leaders|dropshot|mock', 'gpt')
   .option('--image-model <model>', '이미지 모델명')
-  .option('--tts-provider <provider>', 'qwen3|mock', 'qwen3')
+  .option('--tts-provider <provider>', 'qwen3|typecast|mock', 'qwen3')
   .option('--motion-mode <mode>', '장면 영상화: none|hook|all', 'none')
   .option('--motion-engine <engine>', '영상화 엔진: seedance|dropshot', 'seedance')
   .option('--bgm <path>', '배경음악 파일(mp3/wav 등) — 낮은 볼륨으로 깔림')
   .option('--shots <path>', 'AI 촬영감독 숏 연출 JSON(장면별 구도·앵글)')
   .option('--delivery <path>', '문장별 낭독 말투 연출 계획 JSON')
+  .option('--caption-position <position>', '자막 위치: top|center|bottom (기본: 종전 하단)')
+  .option('--caption-max-chars <n>', '자막을 N자 이하 cue로 쪼개 TTS 타이밍에 동기화')
   .option('--out-dir <dir>', '파이프라인 산출물 폴더')
   .option('--force', '산출물이 있어도 전체 재실행')
   .action(
@@ -230,9 +232,14 @@ program
         outDir?: string
         force?: boolean
         delivery?: string
+        captionPosition?: string
+        captionMaxChars?: string
       },
     ) => {
-      process.exitCode = await runStoryPipeline(input, options)
+      process.exitCode = await runStoryPipeline(input, {
+        ...options,
+        captionMaxChars: options.captionMaxChars ? Number(options.captionMaxChars) : undefined,
+      })
     },
   )
 

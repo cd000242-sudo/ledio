@@ -15,6 +15,15 @@ const SPECS: Record<CaptionStyle, StyleSpec> = {
   'strong-box': { fontcolor: 'white', boxAlpha: 0.85 },
 }
 
+export type CaptionPosition = 'top' | 'center' | 'bottom'
+
+/** 자막 위치 → drawtext y 좌표식. 렌더 변형과 스토리 클립 렌더가 공유한다. */
+export function captionYExpression(position: CaptionPosition, height: number): string {
+  if (position === 'top') return `h-${Math.round(height * 0.88)}`
+  if (position === 'center') return '(h-text_h)/2'
+  return `h-${Math.round(height * 0.3)}`
+}
+
 /**
  * 자막 스타일 프리셋을 drawtext 필터 파라미터 목록으로 바꾼다.
  * 공시(disclosure) 자막은 법적 고지라서 스타일과 무관하게 차분한 기본형을 유지한다.

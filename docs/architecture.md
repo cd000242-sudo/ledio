@@ -54,6 +54,9 @@
 | 드롭샷 프로필은 단일 프로세스 점유 — 서버는 상태확인 후 즉시 close | local-server + dropshot-generator | — |
 | TTS 캐시 키 = 목소리 서명(경로+크기+mtime+전사) + 텍스트 | tts/chunkCache | chunkCache.test |
 | 타입캐스트 목소리 = `typecast:<voice_id>` 접두사 (UI→서버→CLI 전 구간), API 키는 TYPECAST_API_KEY env로만 전달(디스크 저장 금지) | typecastProvider + local-server | typecastProvider.test, local-server.test(typecast) |
+| 자막 cue 분할(sceneCues)은 **표시 전용** — 문장 분할 3곳 동기화 계약과 무관, 연출/숏 번호에 사용 금지 | captions/sceneCues | sceneCues.test |
+| cue 미지정 시 스토리 클립 자막은 종전 drawtext와 바이트 동일(스토리 위저드 회귀 방지) | storyAssets.buildCaptionDrawtextFilters | storyAssets.test |
+| 쿠팡 모드 = story-pipeline 재사용: promptProfile=product + referenceImages(캡처) + disclosure + `--caption-position center --caption-max-chars 12` | local-server handleStoryPipeline → CLI | local-server.test(coupang) |
 | hidden 속성은 항상 display를 이긴다 ([hidden] !important) | styles.css | — (UI 규칙) |
 
 ## 3. 파일 크기 정책

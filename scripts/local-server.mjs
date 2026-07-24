@@ -2,8 +2,11 @@
 import { createReadStream, existsSync } from 'node:fs'
 import {
   COHERENCE_RULES,
+  coupangViralPrompt,
+  coupangVisionPrompt,
   deliveryPrompt,
   judgePrompt,
+  parseCoupangProductInfo,
   parseDeliveryResponse,
   parseShotResponse,
   scriptPrompt,
@@ -18,6 +21,12 @@ import {
   resolveNarrationStyle,
 } from './server/narration-styles.mjs'
 import { buildProductNarrationText } from './server/product-narration.mjs'
+import {
+  captureMimeType,
+  claudeVisionContent,
+  geminiVisionParts,
+  openaiVisionContent,
+} from './server/coupang-shorts.mjs'
 import { mkdir, readFile, stat, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import { delimiter, dirname, extname, isAbsolute, join, normalize, resolve, sep } from 'node:path'
@@ -996,13 +1005,18 @@ function runAgentCommand(binary, args, timeoutMs = 180000, stdinText = null) {
 
 const RESEARCH_GENRES = new Set(['경제', '과학', '고전·역사썰', '미스터리·미제', '상식·꿀팁'])
 
-async function generateWithMethod(method, apiKey, prompt, useResearch = false, fastModel = false) {
+async function generateWithMethod(method, apiKey, prompt, useResearch = false, fastModel = false, images = []) {
   if (method === 'api-gpt') {
     if (!apiKey) throw new Error('OpenAI API 키가 필요합니다. 환경설정에서 입력하세요.')
     const data = await fetchJsonOrThrow('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: { 'content-type': 'application/json', authorization: `Bearer ${apiKey}` },
-      body: JSON.stringify({ model: 'gpt-4o-mini', messages: [{ role: 'user', content: prompt }] }),
+      body: JSON.stringify({
+        model: 'gpt-4o-mini',
+        messages: [
+          { role: 'user', content: images.length > 0 ? openaiVisionContent(prompt, images) : prompt },
+        ],
+      }),
     })
     return data.choices?.[0]?.message?.content ?? ''
   }
@@ -1013,7 +1027,9 @@ async function generateWithMethod(method, apiKey, prompt, useResearch = false, f
       {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }),
+        body: JSON.stringify({
+          contents: [{ parts: images.length > 0 ? geminiVisionParts(prompt, images) : [{ text: prompt }] }],
+        }),
       },
     )
     return data.candidates?.[0]?.content?.parts?.[0]?.text ?? ''
@@ -1030,10 +1046,16 @@ async function generateWithMethod(method, apiKey, prompt, useResearch = false, f
       body: JSON.stringify({
         model: 'claude-haiku-4-5-20251001',
         max_tokens: 8000,
-        messages: [{ role: 'user', content: prompt }],
+        messages: [
+          { role: 'user', content: images.length > 0 ? claudeVisionContent(prompt, images) : prompt },
+        ],
       }),
     })
     return data.content?.[0]?.text ?? ''
+  }
+  if (images.length > 0) {
+    // 에이전트 CLI(stdin 텍스트)로는 이미지를 넘길 수 없다 — API 방식에서만 지원.
+    throw new Error('이미지 분석은 API 방식(GPT/Gemini/Claude 키)에서만 가능합니다. 환경설정에서 키를 입력하세요.')
   }
   if (method === 'agent-claude') {
     const binary = findAgentBinary('claude', 'CLAUDE_BIN')
@@ -1058,7 +1080,12 @@ async function handleScriptGenerate(req, res) {
   const topic = String(body.topic ?? '').trim()
   const method = String(body.method ?? 'api-gpt')
   const apiKey = String(body.apiKey ?? '').trim()
-  if (!topic) {
+  // 쿠팡 쇼핑쇼츠 모드 — 주제 대신 상품 정보로 바이럴 대본을 만든다.
+  const coupangInfo =
+    body.mode === 'coupang' && body.productInfo && typeof body.productInfo === 'object'
+      ? body.productInfo
+      : null
+  if (!topic && !coupangInfo) {
     sendJson(res, 400, { ok: false, error: '먼저 주제를 입력하세요.' })
     return
   }
@@ -1094,8 +1121,10 @@ async function handleScriptGenerate(req, res) {
     script = await generatePolishedScript(
       method,
       apiKey,
-      scriptPrompt(topic, seriesEpisode > 0 ? { episode: seriesEpisode, previous: seriesPrevious } : null, durationSec, format, genre, tone) +
-        ` ${COHERENCE_RULES}`,
+      coupangInfo
+        ? coupangViralPrompt(coupangInfo, durationSec, tone)
+        : scriptPrompt(topic, seriesEpisode > 0 ? { episode: seriesEpisode, previous: seriesPrevious } : null, durationSec, format, genre, tone) +
+            ` ${COHERENCE_RULES}`,
       durationSec,
       format,
       genre,
@@ -1106,6 +1135,54 @@ async function handleScriptGenerate(req, res) {
 
   if (!script.trim()) throw new Error('대본이 비어 있습니다. 다시 시도하세요.')
   sendJson(res, 200, { ok: true, script: script.trim(), episodes })
+}
+
+/** 쿠팡 캡처 분석 — 프로젝트에 업로드된 캡처에서 상품 정보를 추출한다(비전 API 전용). */
+async function handleCoupangAnalyze(req, res, workspaceRoot) {
+  const body = await readJsonBody(req)
+  const projectName = safeProjectName(body.projectName ?? '')
+  const relPaths = Array.isArray(body.images) ? body.images.filter(Boolean).map(String) : []
+  if (relPaths.length === 0) {
+    sendJson(res, 400, { ok: false, error: '분석할 캡처 이미지를 먼저 업로드하세요.' })
+    return
+  }
+  const method = String(body.method ?? 'api-gpt')
+  const apiKey = String(body.apiKey ?? '').trim()
+  const projectDir = projectDirFromName(workspaceRoot, projectName)
+  const images = []
+  for (const rel of relPaths.slice(0, 5)) {
+    const abs = join(projectDir, rel)
+    if (!safeStartsWith(abs, projectDir)) {
+      sendJson(res, 403, { ok: false, error: '허용되지 않은 경로입니다.' })
+      return
+    }
+    const info = await stat(abs).catch(() => null)
+    if (!info?.isFile()) {
+      sendJson(res, 400, { ok: false, error: `캡처 파일을 찾을 수 없습니다: ${rel}` })
+      return
+    }
+    // 비전 API의 이미지 한도(클로드 5MB)를 넘기지 않게 미리 거른다.
+    if (info.size > 5 * 1024 * 1024) {
+      sendJson(res, 400, { ok: false, error: `캡처가 너무 큽니다(5MB 초과): ${rel} — 화면을 나눠서 캡처해 주세요.` })
+      return
+    }
+    const data = await readFile(abs)
+    images.push({ base64: data.toString('base64'), mimeType: captureMimeType(rel) })
+  }
+  try {
+    const raw = await generateWithMethod(method, apiKey, coupangVisionPrompt(), false, true, images)
+    const productInfo = parseCoupangProductInfo(raw)
+    if (!productInfo || !productInfo.productName) {
+      sendJson(res, 200, {
+        ok: false,
+        error: '캡처에서 상품 정보를 읽지 못했습니다. 상품명이 보이는 화면으로 다시 캡처하거나 아래 칸에 직접 입력하세요.',
+      })
+      return
+    }
+    sendJson(res, 200, { ok: true, productInfo })
+  } catch (error) {
+    sendJson(res, 200, { ok: false, error: String(error?.message ?? error) })
+  }
 }
 
 /** 에이전트 로그인 여부 — CLI가 저장하는 자격증명 파일 존재로 판정한다. */
@@ -2131,6 +2208,17 @@ async function handleStoryPipeline(req, res, workspaceRoot, commandRunner) {
     sceneDurationSec: Number(body.sceneDurationSec ?? 4),
     ratio,
     ...(String(body.character ?? '').trim() ? { character: String(body.character).trim() } : {}),
+    ...(body.promptProfile === 'product' ? { promptProfile: 'product' } : {}),
+    ...(String(body.disclosure ?? '').trim() ? { disclosure: String(body.disclosure).trim() } : {}),
+  }
+  // 상품 캡처 등 사용자 참조 이미지 — 프로젝트 폴더 안 파일만 절대경로로 yaml에 싣는다.
+  if (Array.isArray(body.referenceImages) && body.referenceImages.length > 0) {
+    const referenceImages = []
+    for (const rel of body.referenceImages.filter(Boolean).map(String).slice(0, 5)) {
+      const abs = join(projectDir, rel)
+      if (safeStartsWith(abs, projectDir) && existsSync(abs)) referenceImages.push(abs)
+    }
+    if (referenceImages.length > 0) input.referenceImages = referenceImages
   }
   await mkdir(projectDir, { recursive: true })
   await writeFile(inputPath, YAML.stringify(input), 'utf8')
@@ -2152,6 +2240,14 @@ async function handleStoryPipeline(req, res, workspaceRoot, commandRunner) {
   ]
   if (body.voice) args.push('--voice', cliVoiceArg(body.voice))
   if (body.imageModel) args.push('--image-model', String(body.imageModel))
+  // TTS 타이밍 동기 자막(쿠팡 모드: center/12자)
+  if (['top', 'center', 'bottom'].includes(body.captionPosition)) {
+    args.push('--caption-position', String(body.captionPosition))
+  }
+  const captionMaxChars = Math.round(Number(body.captionMaxChars))
+  if (Number.isFinite(captionMaxChars) && captionMaxChars >= 4) {
+    args.push('--caption-max-chars', String(captionMaxChars))
+  }
   const motionMode = body.motionMode === 'hook' || body.motionMode === 'all' ? body.motionMode : 'none'
   if (motionMode !== 'none') {
     args.push('--motion-mode', motionMode)
@@ -2641,6 +2737,11 @@ export function createShortsFactoryServer(options = {}) {
 
       if (pathname === '/api/script/generate' && req.method === 'POST') {
         await handleScriptGenerate(req, res)
+        return
+      }
+
+      if (pathname === '/api/coupang/analyze' && req.method === 'POST') {
+        await handleCoupangAnalyze(req, res, workspaceRoot)
         return
       }
 

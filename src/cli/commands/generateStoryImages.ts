@@ -50,9 +50,12 @@ function createProvider(options: GenerateStoryImagesOptions) {
   const provider = options.provider ?? 'openai'
   if (provider === 'mock') return new MockImageProvider()
   if (provider === 'openai' || provider === 'gpt') {
+    // 모델명이 gpt-image-* 형태면 Responses 모델이 아니라 image_generation 툴의 이미지 모델 지정이다(예: GPT Image 2).
+    const isImageToolModel = Boolean(options.model?.startsWith('gpt-image'))
     return new OpenAIResponsesImageProvider({
       apiKey: requireKey('OPENAI_API_KEY', 'GPT'),
-      model: options.model,
+      model: isImageToolModel ? undefined : options.model,
+      imageToolModel: isImageToolModel ? options.model : undefined,
     })
   }
   if (provider === 'gemini') {

@@ -27,6 +27,14 @@ export interface StoryPipelineOptions {
   shots?: string
   /** 문장별 낭독 말투 연출 계획 JSON 경로. */
   delivery?: string
+  /** 자막 위치(top|center|bottom). 지정하지 않으면 종전 하단. */
+  captionPosition?: string
+  /** 지정하면 자막을 이 글자수 이하 cue로 쪼개 TTS 타이밍에 동기화한다. */
+  captionMaxChars?: number
+}
+
+function normalizeCaptionPosition(value: string | undefined): 'top' | 'center' | 'bottom' | undefined {
+  return value === 'top' || value === 'center' || value === 'bottom' ? value : undefined
 }
 
 interface PipelinePaths {
@@ -213,6 +221,8 @@ export async function runStoryPipeline(
         outDir: paths.videoDir,
         motionDir: motionEnabled ? join(paths.outDir, 'motion') : undefined,
         bgm: options.bgm,
+        captionPosition: normalizeCaptionPosition(options.captionPosition),
+        captionMaxChars: options.captionMaxChars ? Number(options.captionMaxChars) : undefined,
       }),
     render: () => runRender(paths.videoDir),
   }

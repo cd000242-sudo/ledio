@@ -2907,3 +2907,14 @@ body[data-mode='simple'] #workbenchToggleBtn {
 .onboard-steps li.onboard-done {
   color: var(--muted);
 }
+
+/* ── 쇼핑쇼츠 모드 토글 (전부 AI / 소스 짜집기) ── */
+.pw-mode-toggle {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.pw-mode-toggle button {
+  flex: 1;
+}

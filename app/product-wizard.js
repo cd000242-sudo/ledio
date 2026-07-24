@@ -6,8 +6,11 @@
  */
 
 import { getSettings } from './settings.js';
+import { renderProductAiMode } from './product-ai-mode.js';
 
 const state = {
+  /** 'ai' = 쿠팡 캡처 → 전부 AI 제작(기본), 'source' = 내 클립 짜집기 */
+  mode: 'ai',
   voices: [],
   typecastVoices: [],
   selectedVoice: '',
@@ -194,9 +197,38 @@ export function renderProductWizardTab(container) {
   if (state.voices.length === 0 || state.narrationStyles.length === 0) loadData().then(() => render(container));
 }
 
+function modeToggleHtml() {
+  return `
+    <div class="pw-mode-toggle">
+      <button id="pwModeAi" class="${state.mode === 'ai' ? 'primary-button' : 'ghost-button'}" type="button">🤖 전부 AI — 쿠팡 캡처로 완성</button>
+      <button id="pwModeSource" class="${state.mode === 'source' ? 'primary-button' : 'ghost-button'}" type="button">🎞 소스 짜집기 — 내 클립 업로드</button>
+    </div>
+  `;
+}
+
+function bindModeToggle(container) {
+  const setMode = (mode) => {
+    state.mode = mode;
+    render(container);
+  };
+  container.querySelector('#pwModeAi')?.addEventListener('click', () => setMode('ai'));
+  container.querySelector('#pwModeSource')?.addEventListener('click', () => setMode('source'));
+}
+
 function render(container) {
+  if (state.mode === 'ai') {
+    container.innerHTML = `<div class="wizard-panel">${modeToggleHtml()}<div id="pwAiRoot"></div></div>`;
+    bindModeToggle(container);
+    renderProductAiMode(container.querySelector('#pwAiRoot'), {
+      voices: state.voices,
+      typecastVoices: state.typecastVoices,
+      narrationStyles: state.narrationStyles,
+    });
+    return;
+  }
   container.innerHTML = `
     <div class="wizard-panel">
+      ${modeToggleHtml()}
       <section class="wizard-step">
         <h3>① 영상 클립</h3>
         <p class="wiz-hint">이미 편집한 클립들을 올리면 9:16으로 맞춰 이어 붙입니다.</p>
@@ -262,6 +294,7 @@ function render(container) {
 }
 
 function bind(container) {
+  bindModeToggle(container);
   const on = (id, event, handler) => {
     const el = container.querySelector(id);
     if (el) el.addEventListener(event, handler);

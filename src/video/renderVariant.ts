@@ -1,7 +1,7 @@
 import { join } from 'node:path'
 import { writeFile, mkdir } from 'node:fs/promises'
 import { runFfmpeg, escapeFilterPath } from './ffmpeg.js'
-import { captionDrawtextParams } from './captionStyle.js'
+import { captionDrawtextParams, captionYExpression } from './captionStyle.js'
 import { stickerFilter } from './sticker.js'
 import { wrapText } from '../utils/text.js'
 import type { CaptionSegment } from '../captions/timeline.js'
@@ -28,12 +28,6 @@ export interface RenderVariantOptions {
 
 function sec(value: number): string {
   return Math.max(0, value).toFixed(3)
-}
-
-function yExpression(position: CaptionSegment['position'], height: number): string {
-  if (position === 'top') return `h-${Math.round(height * 0.88)}`
-  if (position === 'center') return '(h-text_h)/2'
-  return `h-${Math.round(height * 0.3)}`
 }
 
 function fontSize(kind: CaptionSegment['kind']): number {
@@ -95,7 +89,7 @@ async function captionFilter(
     `fontsize=${fontSize(caption.kind)}`,
     'line_spacing=12',
     'x=(w-text_w)/2',
-    `y=${yExpression(caption.position, height)}`,
+    `y=${captionYExpression(caption.position, height)}`,
     `enable='between(t,${sec(caption.start)},${sec(caption.end)})'`,
   ].join(':')
 }

@@ -155,6 +155,36 @@ describe('story mode', () => {
     expect(tall[0]?.imagePrompt).toContain('vertical 9:16')
   })
 
+  it('product 프로파일은 상품 동일성·커머스 룩 지시로 바뀌고 드라마 지시는 빠진다', () => {
+    const scenes = buildStoryScenes({
+      projectName: 'shop-shorts',
+      title: '접이식 선반',
+      script: '좁은 주방 때문에 고민이시죠? 이 선반 하나면 순식간에 해결됩니다.',
+      maxSceneChars: 20,
+      promptProfile: 'product',
+    })
+    expect(scenes.length).toBeGreaterThan(1)
+    for (const scene of scenes) {
+      expect(scene.imagePrompt).toContain('never redesign the product')
+      expect(scene.imagePrompt).toContain('reference photos')
+      expect(scene.imagePrompt).toContain('Korea')
+      expect(scene.imagePrompt).not.toContain('Korean drama')
+      expect(scene.imagePrompt).not.toContain('main character')
+    }
+  })
+
+  it('프로파일을 지정하지 않으면 기존 드라마 프로파일 그대로다', () => {
+    const scenes = buildStoryScenes({
+      projectName: 'p',
+      title: 't',
+      script,
+      maxSceneChars: 60,
+    })
+    for (const scene of scenes) {
+      expect(scene.imagePrompt).toContain('Korean drama')
+    }
+  })
+
   it('creates a package bridge that can be consumed by later render steps', () => {
     const bridge = buildStoryPackageBridge({
       projectName: 'mystery-story',

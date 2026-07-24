@@ -12,6 +12,8 @@ export const storyProjectSchema = z.object({
   character: z.string().optional(),
   /** 화면 비율 — 숏폼 9:16(기본) 또는 롱폼 16:9. 이미지 구도와 렌더 해상도를 결정한다. */
   ratio: z.enum(['9:16', '16:9']).default('9:16'),
+  /** 이미지 프롬프트 프로파일 — story(드라마 스틸컷, 기본) | product(쇼핑쇼츠 커머스 광고). */
+  promptProfile: z.enum(['story', 'product']).default('story'),
 })
 
 export interface StoryScene {
@@ -53,12 +55,50 @@ export function splitStoryScript(script: string, maxChars = 180): string[] {
   return scenes.length > 0 ? scenes : [clean(script)]
 }
 
+/** 쇼핑쇼츠(product) 프로파일 — 상품 참조 사진 동일성 고정 + 커머스 광고 룩. */
+function buildProductImagePrompt(
+  project: StoryProject,
+  chunks: string[],
+  scene: string,
+  index: number,
+  fullStory: string,
+  shots?: string[],
+): string {
+  return [
+    project.imageStyle,
+    `product advertising scene for: ${project.title}`,
+    `full ad script for context: ${fullStory}`,
+    `now draw scene ${index + 1} of ${chunks.length}: ${scene}`,
+    shots?.[index] ? `cinematic shot direction (follow this composition exactly): ${shots[index]}` : '',
+    `tone: ${project.tone}`,
+    // 상품 캡처를 참조로 넘길 때 제품이 장면마다 달라지지 않게 못박는다.
+    'the product must look exactly identical to the attached product reference photos: same shape, color, logo, materials and proportions — never redesign the product',
+    'show the product in a realistic Korean daily-life usage context that matches the narration (hands using it, key feature close-up, before/after moment)',
+    'clean bright premium commerce lighting, crisp focus on the product, advertising quality still',
+    'any people are Korean (East Asian) with natural appearance, the setting is Korea',
+    'avoid repeating the prior shot composition: alternate product close-up, usage shot, detail insert and lifestyle wide shot',
+    project.ratio === '16:9'
+      ? 'horizontal 16:9 widescreen composition, clear subject, no text in image'
+      : 'vertical 9:16 composition, clear subject, no text in image',
+  ]
+    .filter(Boolean)
+    .join(', ')
+}
+
 export function buildStoryScenes(projectInput: StoryProject, shots?: string[], world?: string): StoryScene[] {
   const project = storyProjectSchema.parse(projectInput)
   const chunks = splitStoryScript(project.script, project.maxSceneChars)
   // 장면 하나만 주면 이미지마다 인물·배경이 제각각이 된다.
   // 전체 이야기를 함께 넘겨 모든 장면이 같은 세계관/캐릭터로 그려지게 한다.
   const fullStory = clean(project.script).slice(0, 700)
+  if (project.promptProfile === 'product') {
+    return chunks.map((scene, index) => ({
+      index: index + 1,
+      narration: scene,
+      caption: scene.length > 72 ? `${scene.slice(0, 69).trim()}...` : scene,
+      imagePrompt: buildProductImagePrompt(project, chunks, scene, index, fullStory, shots),
+    }))
+  }
   return chunks.map((scene, index) => ({
     index: index + 1,
     narration: scene,
