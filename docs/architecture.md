@@ -53,6 +53,7 @@
 | CLI는 끝나면 반드시 종료 (process.exit + 드롭샷 브라우저 닫기) | src/cli/index.ts | — (수동 검증됨) |
 | 드롭샷 프로필은 단일 프로세스 점유 — 서버는 상태확인 후 즉시 close | local-server + dropshot-generator | — |
 | TTS 캐시 키 = 목소리 서명(경로+크기+mtime+전사) + 텍스트 | tts/chunkCache | chunkCache.test |
+| 타입캐스트 목소리 = `typecast:<voice_id>` 접두사 (UI→서버→CLI 전 구간), API 키는 TYPECAST_API_KEY env로만 전달(디스크 저장 금지) | typecastProvider + local-server | typecastProvider.test, local-server.test(typecast) |
 | hidden 속성은 항상 display를 이긴다 ([hidden] !important) | styles.css | — (UI 규칙) |
 
 ## 3. 파일 크기 정책
