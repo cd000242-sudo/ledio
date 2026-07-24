@@ -1498,6 +1498,13 @@ async function runPipeline(container) {
   if (wizard.motionMode !== 'none' && wizard.motionEngine === 'seedance' && !getSettings().falApiKey) {
     throw new Error('Seedance 영상화에는 fal.ai API 키가 필요합니다. 환경설정에서 입력하거나 엔진을 드롭샷으로 바꾸세요.');
   }
+  if (
+    wizard.motionMode !== 'none' &&
+    wizard.motionEngine === 'higgsfield' &&
+    (!getSettings().higgsfieldApiKey || !getSettings().higgsfieldSecret)
+  ) {
+    throw new Error('힉스필드 영상화에는 API Key와 Secret이 모두 필요합니다. 환경설정에서 입력하세요.');
+  }
   const projectName = wizard.projectName.trim() || `story-${Date.now().toString(36)}`;
   // 같은 프로젝트 이름으로 두 작업을 겹치면 파일이 섞인다 — 이름을 비워두면 자동으로 고유 이름이 붙는다.
   if (wizard.jobs.some((job) => job.projectName === projectName && (job.status === 'running' || job.status === 'queued'))) {
@@ -1541,6 +1548,8 @@ async function runPipeline(container) {
         motionMode: wizard.motionMode,
         motionEngine: wizard.motionEngine,
         falApiKey: getSettings().falApiKey || '',
+        higgsfieldApiKey: getSettings().higgsfieldApiKey || '',
+        higgsfieldSecret: getSettings().higgsfieldSecret || '',
         voice: wizard.selectedVoice || undefined,
         narrationStyle: wizard.narrationStyle,
         narrationStrength: Number(wizard.narrationStrength),
@@ -1785,6 +1794,7 @@ function renderWizard(container) {
                   <select id="wizMotionEngine">
                     <option value="seedance"${wizard.motionEngine === 'seedance' ? ' selected' : ''}>Seedance (fal.ai 키 필요 · 최저가)</option>
                     <option value="dropshot"${wizard.motionEngine === 'dropshot' ? ' selected' : ''}>드롭샷 (클립당 130크레딧)</option>
+                    <option value="higgsfield"${wizard.motionEngine === 'higgsfield' ? ' selected' : ''}>힉스필드 DoP (시네마틱 · API 키 필요)</option>
                   </select>
                 </label>`
               : ''
@@ -1795,7 +1805,9 @@ function renderWizard(container) {
             ? `<p class="wiz-hint">${
                 wizard.motionEngine === 'seedance'
                   ? 'Seedance는 환경설정의 fal.ai API 키를 사용합니다. 5초 클립당 약 50~90원.'
-                  : '드롭샷 영상은 클립당 130크레딧을 소모합니다(이미지와 달리 무제한 아님).'
+                  : wizard.motionEngine === 'higgsfield'
+                    ? '힉스필드 DoP는 환경설정의 힉스필드 API Key·Secret을 사용합니다. 시네마틱 카메라 무빙에 강합니다.'
+                    : '드롭샷 영상은 클립당 130크레딧을 소모합니다(이미지와 달리 무제한 아님).'
               } 영상화는 장면당 1~3분 걸립니다.</p>`
             : ''
         }

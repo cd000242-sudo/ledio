@@ -2261,7 +2261,10 @@ async function handleStoryPipeline(req, res, workspaceRoot, commandRunner) {
   const motionMode = body.motionMode === 'hook' || body.motionMode === 'all' ? body.motionMode : 'none'
   if (motionMode !== 'none') {
     args.push('--motion-mode', motionMode)
-    args.push('--motion-engine', body.motionEngine === 'dropshot' ? 'dropshot' : 'seedance')
+    args.push(
+      '--motion-engine',
+      body.motionEngine === 'dropshot' ? 'dropshot' : body.motionEngine === 'higgsfield' ? 'higgsfield' : 'seedance',
+    )
   }
   // 배경음악: 프로젝트 폴더 내부 파일만 허용(업로드 API가 audio/에 저장한 파일).
   if (body.bgmFile) {
@@ -2272,6 +2275,8 @@ async function handleStoryPipeline(req, res, workspaceRoot, commandRunner) {
 
   const env = imageProviderEnv(imageProvider, body)
   if (body.falApiKey) env.FAL_KEY = String(body.falApiKey)
+  if (body.higgsfieldApiKey) env.HIGGSFIELD_API_KEY = String(body.higgsfieldApiKey)
+  if (body.higgsfieldSecret) env.HIGGSFIELD_SECRET = String(body.higgsfieldSecret)
   Object.assign(env, typecastEnvFrom(body))
 
   const runnerCall = {

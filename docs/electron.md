@@ -31,7 +31,7 @@ npm run desktop
 
 Electron에서는 선택한 영상/이미지를 프로젝트 폴더로 복사합니다. 브라우저 화면에서는 업로드 방식으로 같은 흐름을 테스트합니다.
 
-AI 키는 실행 순간에만 사용하고 프로젝트 파일에는 저장하지 않습니다. 키를 앱에 입력하지 않을 때는 `OPENAI_API_KEY`, `GEMINI_API_KEY`, `LEADERS_NANO_BANANA_API_KEY`, `LEADERS_NANO_BANANA_ENDPOINT`, `TYPECAST_API_KEY`(타입캐스트 AI 성우) 환경변수를 사용할 수 있습니다.
+AI 키는 실행 순간에만 사용하고 프로젝트 파일에는 저장하지 않습니다. 키를 앱에 입력하지 않을 때는 `OPENAI_API_KEY`, `GEMINI_API_KEY`, `LEADERS_NANO_BANANA_API_KEY`, `LEADERS_NANO_BANANA_ENDPOINT`, `TYPECAST_API_KEY`(타입캐스트 AI 성우), `HIGGSFIELD_API_KEY`/`HIGGSFIELD_SECRET`(힉스필드 영상화) 환경변수를 사용할 수 있습니다.
 
 렌더 실행은 실제 클립 파일과 FFmpeg/ffprobe가 준비되어야 성공합니다.
 

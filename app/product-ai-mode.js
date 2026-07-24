@@ -189,6 +189,12 @@ async function startPipeline() {
   if (ai.motionEngine === 'seedance' && !String(getSettings().falApiKey || '').trim()) {
     throw new Error('Seedance 영상화에는 fal.ai API 키가 필요합니다. 환경설정에서 입력하거나 드롭샷을 선택하세요.');
   }
+  if (
+    ai.motionEngine === 'higgsfield' &&
+    (!String(getSettings().higgsfieldApiKey || '').trim() || !String(getSettings().higgsfieldSecret || '').trim())
+  ) {
+    throw new Error('힉스필드 영상화에는 API Key와 Secret이 모두 필요합니다. 환경설정에서 입력하세요.');
+  }
   const settings = getSettings();
   const engine = imageEngineParams();
   const picked = pickApiMethod();
@@ -218,6 +224,8 @@ async function startPipeline() {
         motionMode: ai.motionEngine === 'none' ? 'none' : 'all',
         motionEngine: ai.motionEngine === 'none' ? undefined : ai.motionEngine,
         falApiKey: settings.falApiKey || '',
+        higgsfieldApiKey: settings.higgsfieldApiKey || '',
+        higgsfieldSecret: settings.higgsfieldSecret || '',
         voice: ai.selectedVoice,
         ttsProvider: isTypecastVoice(ai.selectedVoice) ? 'typecast' : 'qwen3',
         ...(settings.typecastApiKey ? { typecastApiKey: settings.typecastApiKey.trim() } : {}),
@@ -428,6 +436,7 @@ function render() {
           <label>장면 영상화(i2v)
             <select id="aiMotionEngine">
               <option value="dropshot"${ai.motionEngine === 'dropshot' ? ' selected' : ''}>드롭샷 영상 (구독 크레딧)</option>
+              <option value="higgsfield"${ai.motionEngine === 'higgsfield' ? ' selected' : ''}>힉스필드 DoP (시네마틱 · API 키)</option>
               <option value="seedance"${ai.motionEngine === 'seedance' ? ' selected' : ''}>Seedance (fal.ai 키)</option>
               <option value="none"${ai.motionEngine === 'none' ? ' selected' : ''}>정지 이미지만 (빠름)</option>
             </select>

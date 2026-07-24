@@ -12,6 +12,8 @@ const defaults = {
   anthropicApiKey: '',
   falApiKey: '',
   typecastApiKey: '',
+  higgsfieldApiKey: '',
+  higgsfieldSecret: '',
   defaultVoice: '',
   // 채널 주인공 — 모든 쇼츠에서 같은 인물이 나오게 하는 고정 설정
   characterGender: '남성',
@@ -186,6 +188,8 @@ function render(container) {
         <label class="field-wide">Claude API Key <input id="setAnthropic" type="password" value="${esc(s.anthropicApiKey)}" /></label>
         <label class="field-wide">fal.ai API Key (Seedance 영상화용) <input id="setFal" type="password" value="${esc(s.falApiKey)}" /></label>
         <label class="field-wide">타입캐스트 API Key (AI 성우 낭독용) <input id="setTypecast" type="password" value="${esc(s.typecastApiKey)}" /></label>
+        <label class="field-wide">힉스필드 API Key (장면 영상화용) <input id="setHiggsfieldKey" type="password" value="${esc(s.higgsfieldApiKey)}" /></label>
+        <label class="field-wide">힉스필드 Secret <input id="setHiggsfieldSecret" type="password" value="${esc(s.higgsfieldSecret)}" /></label>
         <p class="wiz-hint">💾 입력하는 즉시 자동 저장되고, 앱을 켤 때 자동으로 불러옵니다 — 저장 버튼이 필요 없어요. <span id="setKeySaved" class="key-saved-flash"></span></p>
       </section>
 
@@ -250,6 +254,7 @@ const KEY_LINKS = [
   { name: 'Anthropic (Claude)', keys: 'https://console.anthropic.com/settings/keys', billing: 'https://console.anthropic.com/settings/billing' },
   { name: 'fal.ai (Seedance 영상화)', keys: 'https://fal.ai/dashboard/keys', billing: 'https://fal.ai/dashboard/billing' },
   { name: '타입캐스트 (AI 성우 낭독)', keys: 'https://typecast.ai/developers/api', billing: 'https://biz.typecast.ai/org/overview' },
+  { name: '힉스필드 (장면 영상화)', keys: 'https://platform.higgsfield.ai/', billing: 'https://higgsfield.ai/pricing' },
 ];
 
 let keyLinksModal = null;
@@ -318,6 +323,8 @@ function bind(container) {
   bindKey('#setAnthropic', 'anthropicApiKey');
   bindKey('#setFal', 'falApiKey');
   bindKey('#setTypecast', 'typecastApiKey');
+  bindKey('#setHiggsfieldKey', 'higgsfieldApiKey');
+  bindKey('#setHiggsfieldSecret', 'higgsfieldSecret');
   on('#setRefreshTools', 'click', () => refreshTools(container));
   on('#setAgentsRefresh', 'click', () => refreshAgents(container));
   on('#setClaudeLogin', 'click', () => agentLogin(container, 'claude'));

@@ -39,6 +39,7 @@
 └─ 🔌 외부 어댑터 (scripts/)
     ├─ dropshot-generator.mjs · 브라우저 자동화 (프로필은 한 프로세스만! 서버는 확인 후 반드시 닫기)
     ├─ seedance-generator.mjs · fal.ai i2v
+    ├─ higgsfield-generator.mjs · 힉스필드 DoP i2v (hf-api-key/hf-secret, job-set 폴링)
     └─ qwen3_tts_daemon.py ···· TTS 상주 데몬 (포트 8756, 유휴 30분 자동 종료 — 죽이지 말 것)
 ```
 

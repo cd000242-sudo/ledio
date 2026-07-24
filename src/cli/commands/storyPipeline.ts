@@ -19,7 +19,7 @@ export interface StoryPipelineOptions {
   force?: boolean
   /** 장면 영상화: none(정지 이미지) | hook(첫 장면만) | all(전체) */
   motionMode?: string
-  /** 영상화 엔진: seedance(fal.ai, FAL_KEY 필요) | dropshot(구독 크레딧) */
+  /** 영상화 엔진: seedance(fal.ai, FAL_KEY) | dropshot(구독 크레딧) | higgsfield(HIGGSFIELD_API_KEY/SECRET) */
   motionEngine?: string
   /** 배경음악 파일 경로(선택). 최종 렌더에 낮은 볼륨으로 깔린다. */
   bgm?: string
@@ -68,7 +68,7 @@ async function jsonToYaml(jsonPath: string, yamlPath: string): Promise<void> {
 
 interface MotionStageOptions {
   mode: 'hook' | 'all'
-  engine: 'seedance' | 'dropshot'
+  engine: 'seedance' | 'dropshot' | 'higgsfield'
   force: boolean
 }
 
@@ -81,6 +81,11 @@ interface MotionModule {
   makeDropshotVideo?: (
     prompt: string,
     options: { imagePath: string; outPath: string },
+    onLog?: (message: string) => void,
+  ) => Promise<{ ok: boolean; error?: string }>
+  makeHiggsfieldVideo?: (
+    prompt: string,
+    options: { apiKey: string; apiSecret: string; imagePath: string; outPath: string; model?: string },
     onLog?: (message: string) => void,
   ) => Promise<{ ok: boolean; error?: string }>
 }
@@ -104,7 +109,12 @@ async function runMotionStage(paths: PipelinePaths, options: MotionStageOptions)
   await mkdir(motionDir, { recursive: true })
   const targets = options.mode === 'hook' ? [0] : scenes.map((_, index) => index)
 
-  const moduleFile = options.engine === 'dropshot' ? 'dropshot-generator.mjs' : 'seedance-generator.mjs'
+  const moduleFile =
+    options.engine === 'dropshot'
+      ? 'dropshot-generator.mjs'
+      : options.engine === 'higgsfield'
+        ? 'higgsfield-generator.mjs'
+        : 'seedance-generator.mjs'
   const mod = (await import(
     pathToFileURL(join(process.cwd(), 'scripts', moduleFile)).href
   )) as MotionModule
@@ -123,11 +133,22 @@ async function runMotionStage(paths: PipelinePaths, options: MotionStageOptions)
     const result =
       options.engine === 'dropshot'
         ? await mod.makeDropshotVideo?.(motionPrompt, { imagePath, outPath }, (m) => logger.dim(`  ${m}`))
-        : await mod.makeSeedanceVideo?.(
-            motionPrompt,
-            { apiKey: process.env.FAL_KEY ?? '', imagePath, outPath, durationSec: 5, resolution: '480p' },
-            (m) => logger.dim(`  ${m}`),
-          )
+        : options.engine === 'higgsfield'
+          ? await mod.makeHiggsfieldVideo?.(
+              motionPrompt,
+              {
+                apiKey: process.env.HIGGSFIELD_API_KEY ?? '',
+                apiSecret: process.env.HIGGSFIELD_SECRET ?? '',
+                imagePath,
+                outPath,
+              },
+              (m) => logger.dim(`  ${m}`),
+            )
+          : await mod.makeSeedanceVideo?.(
+              motionPrompt,
+              { apiKey: process.env.FAL_KEY ?? '', imagePath, outPath, durationSec: 5, resolution: '480p' },
+              (m) => logger.dim(`  ${m}`),
+            )
     if (!result?.ok) {
       logger.error(`장면 ${index + 1} 영상화 실패: ${result?.error ?? '알 수 없는 오류'}`)
       return 1
@@ -206,7 +227,12 @@ export async function runStoryPipeline(
     motion: () =>
       runMotionStage(paths, {
         mode: options.motionMode === 'all' ? 'all' : 'hook',
-        engine: options.motionEngine === 'dropshot' ? 'dropshot' : 'seedance',
+        engine:
+          options.motionEngine === 'dropshot'
+            ? 'dropshot'
+            : options.motionEngine === 'higgsfield'
+              ? 'higgsfield'
+              : 'seedance',
         force: options.force ?? false,
       }),
     narrate: () =>

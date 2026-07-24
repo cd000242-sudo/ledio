@@ -212,7 +212,7 @@ program
   .option('--image-model <model>', '이미지 모델명')
   .option('--tts-provider <provider>', 'qwen3|typecast|mock', 'qwen3')
   .option('--motion-mode <mode>', '장면 영상화: none|hook|all', 'none')
-  .option('--motion-engine <engine>', '영상화 엔진: seedance|dropshot', 'seedance')
+  .option('--motion-engine <engine>', '영상화 엔진: seedance|dropshot|higgsfield', 'seedance')
   .option('--bgm <path>', '배경음악 파일(mp3/wav 등) — 낮은 볼륨으로 깔림')
   .option('--shots <path>', 'AI 촬영감독 숏 연출 JSON(장면별 구도·앵글)')
   .option('--delivery <path>', '문장별 낭독 말투 연출 계획 JSON')

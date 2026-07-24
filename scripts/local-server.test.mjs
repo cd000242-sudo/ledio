@@ -906,6 +906,34 @@ describe('local server API', () => {
     }
   }, 30000)
 
+  it('story-pipeline이 힉스필드 영상화 엔진과 키를 전달한다', async () => {
+    const calls = []
+    await startServer(async (call) => {
+      calls.push(call)
+      return { exitCode: 0, stdout: 'pipeline ok', stderr: '' }
+    })
+    const response = await fetch(`${baseUrl}/api/story-pipeline`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        projectName: 'higgsfield-pipe',
+        script: '첫 문장입니다.',
+        imageProvider: 'mock',
+        ttsProvider: 'mock',
+        motionMode: 'all',
+        motionEngine: 'higgsfield',
+        higgsfieldApiKey: 'hf-key',
+        higgsfieldSecret: 'hf-secret',
+      }),
+    })
+    const data = await response.json()
+    expect(data.ok).toBe(true)
+    const args = calls[0].args
+    expect(args[args.indexOf('--motion-engine') + 1]).toBe('higgsfield')
+    expect(calls[0].env?.HIGGSFIELD_API_KEY).toBe('hf-key')
+    expect(calls[0].env?.HIGGSFIELD_SECRET).toBe('hf-secret')
+  })
+
   it('proxies the typecast voice catalog with the api key header', async () => {
     const { createServer: createHttpServer } = await import('node:http')
     const upstream = createHttpServer((req, res) => {
