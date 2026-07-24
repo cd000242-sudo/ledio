@@ -2,6 +2,7 @@ import { access } from 'node:fs/promises'
 import { loadProject } from '../../config/loadProject.js'
 import { resolveClipPath } from '../../utils/paths.js'
 import { logger } from '../../utils/logger.js'
+import { ensureFfmpeg } from '../../video/ffmpeg.js'
 import { probeClip } from '../../video/ffprobe.js'
 import { buildSilenceEditPlan, detectSilences } from '../../video/silence.js'
 
@@ -23,6 +24,8 @@ export async function runAnalyzeSilence(
   options: AnalyzeSilenceOptions = {},
 ): Promise<number> {
   try {
+    // ffmpeg/ffprobe가 없으면 ENOENT 대신 설치 안내가 나가게 먼저 확인한다.
+    await ensureFfmpeg()
     const { project, projectDir } = await loadProject(projectPath)
     const clip = options.clip
       ? project.clips.find((candidate) => candidate.file === options.clip)
@@ -30,7 +33,14 @@ export async function runAnalyzeSilence(
     if (!clip) throw new Error(options.clip ? `클립을 찾을 수 없습니다: ${options.clip}` : '분석할 클립이 없습니다.')
 
     const clipPath = resolveClipPath(projectDir, clip.file)
-    await access(clipPath)
+    try {
+      await access(clipPath)
+    } catch {
+      throw new Error(
+        `클립 파일이 프로젝트 폴더에 없습니다: ${clip.file}\n` +
+          `'영상 선택(추가)'으로 실제 파일을 프로젝트에 가져온 뒤 분석하세요.`,
+      )
+    }
     const media = await probeClip(clipPath)
     const silenceOptions = {
       noiseDb: numberOption(options.noiseDb, -35),

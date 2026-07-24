@@ -2918,3 +2918,36 @@ body[data-mode='simple'] #workbenchToggleBtn {
 .pw-mode-toggle button {
   flex: 1;
 }
+
+/* ── 타임라인 파형(물결) + 무음 오버레이 ── */
+.timeline-lane.audio {
+  min-height: 44px;
+}
+
+.timeline-audio-block {
+  min-height: 44px;
+  background-color: #16281f;
+  background-repeat: no-repeat;
+  background-size: 100% 100%;
+}
+
+.timeline-silence-cut {
+  position: absolute;
+  top: 22px; /* 눈금 아래부터 */
+  bottom: 0;
+  background: repeating-linear-gradient(
+    135deg,
+    rgba(244, 114, 182, 0.28),
+    rgba(244, 114, 182, 0.28) 6px,
+    rgba(244, 114, 182, 0.12) 6px,
+    rgba(244, 114, 182, 0.12) 12px
+  );
+  border-left: 1px solid rgba(244, 114, 182, 0.7);
+  border-right: 1px solid rgba(244, 114, 182, 0.7);
+  pointer-events: none;
+  z-index: 2;
+}
+
+.timeline-playhead {
+  z-index: 3;
+}

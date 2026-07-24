@@ -934,6 +934,55 @@ describe('local server API', () => {
     expect(calls[0].env?.HIGGSFIELD_SECRET).toBe('hf-secret')
   })
 
+  it('silence analyze 실패 시 최상위 error로 원인을 알려준다', async () => {
+    await startServer(async () => ({
+      exitCode: 1,
+      stdout: JSON.stringify({ error: '클립 파일이 프로젝트 폴더에 없습니다: clips/x.mp4' }),
+      stderr: '',
+    }))
+    const response = await fetch(`${baseUrl}/api/silence/analyze`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ projectPath: 'projects/p', clipFile: 'clips/x.mp4' }),
+    })
+    const data = await response.json()
+    expect(data.ok).toBe(false)
+    expect(data.error).toContain('클립 파일이 프로젝트 폴더에 없습니다')
+  })
+
+  it('waveform: 클립 오디오 파형 PNG를 만들어 서빙한다(구간 지정 포함)', async () => {
+    await startServer()
+    const { homedir } = await import('node:os')
+    const ffmpegBin =
+      process.env.FFMPEG_PATH || join(homedir(), 'AppData', 'Local', 'Microsoft', 'WinGet', 'Links', 'ffmpeg.exe')
+    const { spawn } = await import('node:child_process')
+    const runTool = (bin, args) =>
+      new Promise((resolveRun, rejectRun) => {
+        const child = spawn(bin, args, { windowsHide: true, shell: false })
+        child.on('close', (code) => (code === 0 ? resolveRun() : rejectRun(new Error(`exit ${code}`))))
+        child.on('error', rejectRun)
+      })
+    const clipsDir = join(workspaceRoot, 'projects', 'wave-e2e', 'clips')
+    const { mkdir: mkdirp } = await import('node:fs/promises')
+    await mkdirp(clipsDir, { recursive: true })
+    await runTool(ffmpegBin, [
+      '-y', '-f', 'lavfi', '-i', 'color=c=red:s=160x120:d=1',
+      '-f', 'lavfi', '-i', 'sine=frequency=440:duration=1',
+      '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-shortest', join(clipsDir, 'a.mp4'),
+    ])
+
+    const full = await fetch(
+      `${baseUrl}/api/media/waveform?projectName=wave-e2e&file=${encodeURIComponent('clips/a.mp4')}`,
+    )
+    expect(full.status).toBe(200)
+    expect(full.headers.get('content-type')).toContain('image/png')
+
+    const escape = await fetch(
+      `${baseUrl}/api/media/waveform?projectName=wave-e2e&file=${encodeURIComponent('../../secret.mp4')}`,
+    )
+    expect(escape.status).toBe(403)
+  }, 30000)
+
   it('proxies the typecast voice catalog with the api key header', async () => {
     const { createServer: createHttpServer } = await import('node:http')
     const upstream = createHttpServer((req, res) => {

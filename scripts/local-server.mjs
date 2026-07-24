@@ -818,8 +818,23 @@ async function handleSilenceAnalyze(req, res, workspaceRoot, commandRunner) {
   })
 
   const report = parseJsonObjectFromText(result.stdout)
+  // 실패 원인이 모달/상태창에 그대로 보이게 최상위 error로 올린다(과거엔 "요청 실패"로 뭉개졌음).
+  const failDetail =
+    result.exitCode === 0
+      ? undefined
+      : report?.error ||
+        [result.stderr, result.stdout]
+          .map((value) => String(value ?? '').trim())
+          .filter(Boolean)
+          .join(' ')
+          .split('\n')
+          .filter(Boolean)
+          .at(-1)
+          ?.slice(0, 300) ||
+        '무음 분석 실패 — 진단 로그를 확인하세요.'
   sendJson(res, 200, {
     ok: result.exitCode === 0,
+    error: failDetail,
     command: 'analyze-silence',
     projectPath: resolvedPath,
     exitCode: result.exitCode,
@@ -827,6 +842,58 @@ async function handleSilenceAnalyze(req, res, workspaceRoot, commandRunner) {
     stderr: result.stderr,
     report,
   })
+}
+
+/**
+ * 클립 오디오 파형(물결) PNG — 타임라인 오디오 레인 배경용.
+ * <project>/waveforms/에 캐시하고 원본이 바뀌면 다시 만든다. start/end를 주면 그 구간만 그린다.
+ */
+async function handleMediaWaveform(url, res, workspaceRoot, req = null) {
+  const mediaFile = String(url.searchParams.get('file') ?? '')
+  if (!mediaFile.trim()) {
+    sendJson(res, 400, { ok: false, error: '파형을 만들 파일 경로가 필요합니다.' })
+    return
+  }
+  const projectPath = url.searchParams.get('projectPath')
+  const projectName = url.searchParams.get('projectName')
+  const projectDir = projectPath
+    ? resolveWorkspacePath(workspaceRoot, projectPath)
+    : projectDirFromName(workspaceRoot, projectName ?? 'new-project')
+  const target = resolve(projectDir, mediaFile)
+  if (!safeStartsWith(target, projectDir) || !safeStartsWith(target, workspaceRoot)) {
+    sendJson(res, 403, { ok: false, error: '프로젝트 밖의 미디어는 사용할 수 없습니다.' })
+    return
+  }
+  const sourceInfo = await stat(target).catch(() => null)
+  if (!sourceInfo?.isFile()) {
+    sendJson(res, 404, { ok: false, error: `파일을 찾을 수 없습니다: ${mediaFile}` })
+    return
+  }
+  const start = Number(url.searchParams.get('start'))
+  const end = Number(url.searchParams.get('end'))
+  const hasRange = Number.isFinite(start) && Number.isFinite(end) && end > start
+  const wavesDir = join(projectDir, 'waveforms')
+  const cacheName =
+    safeFileName(mediaFile.replace(/[\\/]/g, '_'), 'clip') +
+    (hasRange ? `.${start.toFixed(2)}-${end.toFixed(2)}` : '') +
+    '.png'
+  const outPath = join(wavesDir, cacheName)
+  const cached = await stat(outPath).catch(() => null)
+  if (!cached || cached.mtimeMs < sourceInfo.mtimeMs) {
+    await mkdir(wavesDir, { recursive: true })
+    const ffmpeg = findExecutable('ffmpeg', 'FFMPEG_PATH') || 'ffmpeg'
+    const filter =
+      'aformat=channel_layouts=mono' +
+      (hasRange ? `,atrim=${start.toFixed(3)}:${end.toFixed(3)}` : '') +
+      ',showwavespic=s=1200x96:colors=#7fb0ff'
+    try {
+      await runToolCapture(ffmpeg, ['-y', '-i', target, '-filter_complex', filter, '-frames:v', '1', outPath])
+    } catch (error) {
+      sendJson(res, 200, { ok: false, error: `파형 생성 실패(오디오 없는 클립일 수 있음): ${error.message}` })
+      return
+    }
+  }
+  await sendStaticFile(res, outPath, req)
 }
 
 function voiceNameFrom(value) {
@@ -2831,6 +2898,11 @@ export function createShortsFactoryServer(options = {}) {
 
       if (pathname === '/api/media/preview' && req.method === 'GET') {
         await handleMediaPreview(requestUrl, res, workspaceRoot, req)
+        return
+      }
+
+      if (pathname === '/api/media/waveform' && req.method === 'GET') {
+        await handleMediaWaveform(requestUrl, res, workspaceRoot, req)
         return
       }
 

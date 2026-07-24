@@ -715,6 +715,22 @@ function mediaPreviewUrl(clip) {
   return `/api/media/preview?${params.toString()}`;
 }
 
+/** 클립 구간의 오디오 파형(물결) PNG URL — 타임라인 오디오 레인 배경으로 쓴다. */
+function waveformUrl(file, startSec, endSec) {
+  if (!file) return '';
+  const params = new URLSearchParams({ file });
+  if (state.localProjectPath) {
+    params.set('projectPath', state.localProjectPath);
+  } else {
+    params.set('projectName', state.draft.projectName);
+  }
+  if (Number.isFinite(startSec) && Number.isFinite(endSec) && endSec > startSec) {
+    params.set('start', startSec.toFixed(2));
+    params.set('end', endSec.toFixed(2));
+  }
+  return `/api/media/waveform?${params.toString()}`;
+}
+
 // ── 되돌리기/다시하기: 편집 내용(draft) 스냅숏 히스토리 ──
 
 const draftHistory = { past: [], future: [] };
@@ -2482,9 +2498,15 @@ async function analyzeSilenceLocal() {
     minDurationSec: state.silence.minDurationSec,
     paddingSec: state.silence.paddingSec,
   });
-  state.status = data.ok ? '무음 분석 완료' : '무음 분석 실패';
-  state.commandOutput = commandText(data) || state.status;
   state.silence.report = data.report;
+  const warnings = data.report?.warnings ?? [];
+  const removeCount = data.report?.plan?.remove?.length ?? 0;
+  state.status = !data.ok
+    ? '무음 분석 실패'
+    : removeCount === 0
+      ? '무음 분석 완료 — 삭제할 무음 구간 없음 (무음 기준을 -30dB 쪽으로 올리거나 최소 무음을 줄여보세요)'
+      : `무음 분석 완료 — 삭제 후보 ${removeCount}개 (타임라인의 빗금 구간)`;
+  state.commandOutput = warnings.length > 0 ? warnings.join('\n') : commandText(data) || state.status;
   renderAll();
 }
 
@@ -3671,7 +3693,10 @@ async function apiPost(path, body) {
     body: JSON.stringify(body),
   });
   const data = await response.json();
-  if (!response.ok || data.ok === false) throw new Error(data.error || `${path} 요청 실패`);
+  if (!response.ok || data.ok === false) {
+    // 서버가 실패 원인을 준 경우 그대로 보여준다 — report 안에 묻힌 error까지 확인.
+    throw new Error(data.error || data.report?.error || `${path} 요청 실패`);
+  }
   return data;
 }
 
@@ -3703,7 +3728,11 @@ async function runLocalCommand(command) {
 
 function reportApiError(error) {
   state.status = '실행 실패';
-  state.commandOutput = `${error.message}\n\n로컬 서버에서 앱을 실행해야 저장, 검증, 렌더, 패키지를 사용할 수 있습니다.`;
+  // 네트워크 자체가 죽었을 때만 서버 실행 안내를 붙인다 — 서버가 준 실제 원인을 가리면 안 된다.
+  const isNetworkError = error instanceof TypeError;
+  state.commandOutput = isNetworkError
+    ? `${error.message}\n\n로컬 서버(앱)와 통신하지 못했습니다 — 데스크톱 앱(또는 npm run app)이 실행 중인지 확인하세요.`
+    : error.message;
   renderAll();
 }
 
@@ -4049,10 +4078,39 @@ function timelineBlocksHtml(segments, totalDurationSec) {
     .map((segment) => {
       const clip = state.draft.clips[segment.index];
       const width = ((segment.durationSec / totalDurationSec) * 100).toFixed(3);
-      return `<div class="timeline-audio-block${clip?.mute ? ' muted' : ''}" style="width:${width}%">${clip?.mute ? '무음' : '♪'}</div>`;
+      // 소리/무음이 물결(파형)로 보이게 구간별 파형 PNG를 배경으로 깐다.
+      const wave =
+        clip?.file && !clip?.mute
+          ? `;background-image:url('${waveformUrl(clip.file, segment.sourceStartSec, segment.sourceEndSec)}')`
+          : '';
+      return `<div class="timeline-audio-block${clip?.mute ? ' muted' : ''}" style="width:${width}%${wave}">${clip?.mute ? '무음' : ''}</div>`;
     })
     .join('');
   return { video, audio };
+}
+
+/**
+ * 무음 분석 결과(plan.remove)를 타임라인 좌표의 빗금 오버레이로 바꾼다.
+ * 원본 소스 초 → 세그먼트 교집합 → 타임라인 초 변환(배속 반영).
+ */
+function silenceOverlayHtml(segments, totalDurationSec) {
+  const report = state.silence.report;
+  const remove = report?.plan?.remove ?? [];
+  if (!report?.clip?.file || remove.length === 0 || totalDurationSec <= 0) return '';
+  return segments
+    .filter((segment) => state.draft.clips[segment.index]?.file === report.clip.file)
+    .flatMap((segment) =>
+      remove.map((range) => {
+        const overlapStart = Math.max(Number(range.start), segment.sourceStartSec);
+        const overlapEnd = Math.min(Number(range.end), segment.sourceEndSec);
+        if (overlapEnd <= overlapStart) return '';
+        const speed = segment.speed || 1;
+        const timelineStart = segment.timelineStartSec + (overlapStart - segment.sourceStartSec) / speed;
+        const timelineWidth = (overlapEnd - overlapStart) / speed;
+        return `<div class="timeline-silence-cut" style="left:${((timelineStart / totalDurationSec) * 100).toFixed(2)}%;width:${((timelineWidth / totalDurationSec) * 100).toFixed(2)}%" title="무음 ${overlapStart.toFixed(1)}~${overlapEnd.toFixed(1)}s — 컷 적용 시 잘립니다"></div>`;
+      }),
+    )
+    .join('');
 }
 
 let timelineScrubbing = false;
@@ -4109,6 +4167,7 @@ function renderAutomationDeck() {
               ? `<div class="timeline-lane bgm"><div class="timeline-bgm-block">♫ BGM · ${escapeHtml(state.draft.bgm.file.split('/').pop())} · ${bgmVolumeLabels[state.draft.style.bgmVolume] ?? '기본'}</div></div>`
               : ''
           }
+          ${silenceOverlayHtml(segments, totalDurationSec)}
           <div class="timeline-playhead" id="timelinePlayhead"></div>
         </div>
       </div>
