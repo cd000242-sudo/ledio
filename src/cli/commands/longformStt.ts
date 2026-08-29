@@ -1,9 +1,10 @@
 import { access, mkdir } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
-import { runWhisperx } from '../../captions/whisperx.js'
+import { findWhisperxPython, runWhisperx } from '../../captions/whisperx.js'
 import { logger } from '../../utils/logger.js'
 
 export interface LongformSttOptions {
+  workspaceRoot?: string
   model?: string
   initialPrompt?: string
   language?: string
@@ -29,6 +30,8 @@ export async function runLongformStt(mediaPath: string, options: LongformSttOpti
       language: options.language,
       computeType: options.computeType,
       initialPrompt: options.initialPrompt,
+      // 실행 위치가 아니라 저장소(워크스페이스) 기준으로 엔진을 찾는다.
+      pythonBin: findWhisperxPython(options.workspaceRoot ?? process.cwd()) ?? undefined,
     })
 
     if (options.json) {

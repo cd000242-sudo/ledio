@@ -550,19 +550,23 @@ function normalizeCaptionProvider(value) {
   return value === 'mock' ? 'mock' : 'local-whisper'
 }
 
-/** STT 전용 venv의 파이썬 — 롱폼 자막 엔진(WhisperX)이 여기 설치된다. */
-function whisperxPython() {
+/**
+ * STT 전용 venv의 파이썬 — 롱폼 자막 엔진(WhisperX)이 여기 설치된다.
+ * **실행 위치(cwd)가 아니라 워크스페이스 기준**으로 찾는다.
+ * 패키지된 앱은 어디서 실행될지 알 수 없어서, cwd로 찾으면 설치 여부를 잘못 판단한다(실측).
+ */
+function whisperxPython(workspaceRoot) {
   for (const candidate of [
     process.env.SF_WHISPERX_PYTHON,
-    join(process.cwd(), '.venv-stt', 'Scripts', 'python.exe'),
-    join(process.cwd(), '.venv-stt', 'bin', 'python'),
+    join(workspaceRoot, '.venv-stt', 'Scripts', 'python.exe'),
+    join(workspaceRoot, '.venv-stt', 'bin', 'python'),
   ]) {
     if (candidate && existsSync(candidate)) return candidate
   }
   return null
 }
 
-function captionToolSpecs() {
+function captionToolSpecs(workspaceRoot) {
   return [
     {
       id: 'ffmpeg',
@@ -582,7 +586,7 @@ function captionToolSpecs() {
       // 롱폼 자막 탭이 쓰는 엔진. 전용 venv(.venv-stt)에 설치한다.
       id: 'whisperx',
       label: '롱폼 자막 엔진(WhisperX)',
-      command: whisperxPython() ?? 'python',
+      command: whisperxPython(workspaceRoot) ?? 'python',
       args: ['-c', 'import whisperx'],
       installHint:
         '설치 안내: 저장소 폴더에서 py -3.13 -m venv .venv-stt → .venv-stt/Scripts/python -m pip install whisperx. ' +
@@ -703,8 +707,8 @@ function checkCaptionTool(spec) {
   })
 }
 
-async function handleCaptionStatus(res) {
-  const tools = await Promise.all(captionToolSpecs().map((spec) => checkCaptionTool(spec)))
+async function handleCaptionStatus(res, workspaceRoot) {
+  const tools = await Promise.all(captionToolSpecs(workspaceRoot).map((spec) => checkCaptionTool(spec)))
   const hasTool = (id) => tools.some((tool) => tool.id === id && tool.available)
   sendJson(res, 200, {
     ok: true,
@@ -3278,7 +3282,7 @@ export function createShortsFactoryServer(options = {}) {
       }
 
       if (pathname === '/api/captions/status' && req.method === 'GET') {
-        await handleCaptionStatus(res)
+        await handleCaptionStatus(res, workspaceRoot)
         return
       }
 
