@@ -2,6 +2,7 @@
 import { createReadStream, existsSync } from 'node:fs'
 import { createAssistantRuntime } from './server/assistant-runtime.mjs'
 import { createInstaller, isEngineInstalled } from './server/stt-engine.mjs'
+import { analyzeForAutoEdit, applySelectedCuts } from './server/auto-edit.mjs'
 import {
   buildBurnSrt,
   proofreadCues,
@@ -1417,6 +1418,78 @@ async function handleAssistantApprove(req, res) {
   const approved = body.approved === true
   const settled = settleApproval(id, approved, approved ? null : '사용자가 취소했습니다.')
   sendJson(res, settled ? 200 : 404, { ok: settled, ...(settled ? {} : { error: '이미 끝난 승인 요청입니다.' }) })
+}
+
+// ── 자동 편집: 받아쓰기 → 자를 후보 → (확인) → 컷 적용 ──
+
+/** 분석 결과를 잠깐 들고 있는다 — 사용자가 확인하는 동안 다시 받아쓰지 않게. */
+const autoEditCache = new Map()
+
+async function loadAutoEditModules() {
+  const [reformat, autoCut] = await Promise.all([
+    import('../dist/subtitles/reformat.js'),
+    import('../dist/edit/autoCut.js'),
+  ])
+  return { subtitles: { reformatSubtitles: reformat.reformatSubtitles }, autoCut }
+}
+
+/** ① 받아쓰기 + 후보 뽑기. 실제 자르기는 하지 않는다. */
+async function handleAutoEditAnalyze(req, res, workspaceRoot, commandRunner) {
+  const body = await readJsonBody(req)
+  const mediaPath = String(body.mediaPath ?? '').trim()
+  if (!mediaPath || !existsSync(mediaPath)) {
+    sendJson(res, 400, { ok: false, error: '영상 또는 음성 파일을 찾을 수 없습니다.' })
+    return
+  }
+
+  const { subtitles, autoCut } = await loadAutoEditModules()
+  const transcribe = async (path) => {
+    const args = ['longform-stt', path, '--json']
+    if (body.language) args.push('--language', String(body.language))
+    const result = await commandRunner({ command: 'longform-stt', projectPath: path, workspaceRoot, args })
+    const report = parseJsonObjectFromText(result.stdout)
+    if (!report?.ok) throw new Error(report?.error || '받아쓰기에 실패했습니다.')
+    return report.cues ?? []
+  }
+
+  try {
+    const analysis = await analyzeForAutoEdit(mediaPath, { transcribe, subtitles, autoCut }, {
+      strength: String(body.strength ?? 'normal'),
+    })
+    if (!analysis.ok) {
+      sendJson(res, 200, analysis)
+      return
+    }
+    autoEditCache.set(mediaPath, { totalMs: analysis.totalMs, cues: analysis.cues, at: Date.now() })
+    sendJson(res, 200, { ...analysis, cues: undefined })
+  } catch (error) {
+    sendJson(res, 200, { ok: false, error: String(error?.message ?? error) })
+  }
+}
+
+/** ② 사용자가 고른 구간만 실제로 자른다. */
+async function handleAutoEditApply(req, res, workspaceRoot, commandRunner) {
+  const body = await readJsonBody(req, 4 * 1024 * 1024)
+  const mediaPath = String(body.mediaPath ?? '').trim()
+  const cached = autoEditCache.get(mediaPath)
+  const totalMs = Number(body.totalMs) || cached?.totalMs || 0
+  if (!mediaPath || !existsSync(mediaPath) || totalMs <= 0) {
+    sendJson(res, 400, { ok: false, error: '먼저 분석을 실행하세요.' })
+    return
+  }
+
+  const { autoCut } = await loadAutoEditModules()
+  const runCommand = async (args) => {
+    const result = await commandRunner({ command: 'apply-cuts', projectPath: mediaPath, workspaceRoot, args })
+    const report = parseJsonObjectFromText(result.stdout)
+    return report?.ok
+      ? { ok: true, outPath: report.outPath }
+      : { ok: false, error: report?.error || String(result.stderr ?? '').slice(-300) }
+  }
+
+  const selected = Array.isArray(body.selected) ? body.selected : []
+  const result = await applySelectedCuts(mediaPath, selected, totalMs, { autoCut, writeFile, runCommand })
+  sendJson(res, 200, result)
 }
 
 // ── 롱폼 자막 엔진(WhisperX) 설치 ──
@@ -3481,6 +3554,16 @@ export function createShortsFactoryServer(options = {}) {
 
       if (pathname.startsWith('/api/scripts/') && req.method === 'DELETE') {
         await handleScriptDelete(pathname, res, workspaceRoot)
+        return
+      }
+
+      if (pathname === '/api/auto-edit/analyze' && req.method === 'POST') {
+        await handleAutoEditAnalyze(req, res, workspaceRoot, commandRunner)
+        return
+      }
+
+      if (pathname === '/api/auto-edit/apply' && req.method === 'POST') {
+        await handleAutoEditApply(req, res, workspaceRoot, commandRunner)
         return
       }
 

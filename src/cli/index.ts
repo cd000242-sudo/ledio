@@ -13,6 +13,7 @@ import { runAnalyzeSilence } from './commands/analyzeSilence.js'
 import { runAutoCaption } from './commands/autoCaption.js'
 import { runLongformStt } from './commands/longformStt.js'
 import { runBurnCaptions } from './commands/burnCaptions.js'
+import { runApplyCuts } from './commands/applyCuts.js'
 import { runAutocut } from './commands/autocut.js'
 import { runNarrate } from './commands/narrate.js'
 import { runStoryPipeline } from './commands/storyPipeline.js'
@@ -140,6 +141,17 @@ program
   .option('--json', 'print JSON report')
   .action(async (videoPath: string, options: Parameters<typeof runBurnCaptions>[1]) => {
     process.exitCode = await runBurnCaptions(videoPath, options)
+  })
+
+program
+  .command('apply-cuts')
+  .description('Keeps only the given ranges and joins them back into one video')
+  .argument('<videoPath>', 'source video')
+  .requiredOption('--keep <file>', 'JSON file with [{startMs,endMs}] ranges to keep')
+  .option('--out <file>', 'output video path')
+  .option('--json', 'print JSON report')
+  .action(async (videoPath: string, options: Parameters<typeof runApplyCuts>[1]) => {
+    process.exitCode = await runApplyCuts(videoPath, options)
   })
 
 program
