@@ -76,7 +76,7 @@ test('비서 패널: 도구 카드와 승인 카드를 그린다', async ({ page
   await expect(approval).toContainText('취소함')
 })
 
-test('비서 패널: 대화 보관과 비용 표시', async ({ page }) => {
+test('비서 패널: 대화 보관과 완료 표시', async ({ page }) => {
   await page.goto(baseUrl)
   await page.getByRole('button', { name: /비서/ }).click()
 
@@ -100,7 +100,7 @@ test('비서 패널: 대화 보관과 비용 표시', async ({ page }) => {
   await expect(panel.getByText('__저장확인__')).toBeVisible()
   await expect(panel.getByText('지난 대화입니다.')).toBeVisible()
 
-  // 완료 이벤트의 비용이 배지에 뜬다
+  // 완료 배지에는 걸린 시간만 뜬다 — 구독으로 돌기 때문에 금액을 띄우면 오해를 부른다
   await page.evaluate(async () => {
     const module = await import('./assistant.js')
     const panel = module.createAssistantPanel()
@@ -109,5 +109,7 @@ test('비서 패널: 대화 보관과 비용 표시', async ({ page }) => {
     panel.open()
     panel.handleEvent({ type: 'done', sessionId: 's-42', durationMs: 12000, costUsd: 0.0274, isError: false })
   })
-  await expect(page.locator('.assistant-panel[data-cost-panel="true"] .assistant-status')).toHaveText('완료 · 12초 · $0.027')
+  const badge = page.locator('.assistant-panel[data-cost-panel="true"] .assistant-status')
+  await expect(badge).toHaveText('완료 · 12초')
+  await expect(badge).not.toContainText('$')
 })
