@@ -22,7 +22,7 @@ const byName = (tools, name) => tools.find((tool) => tool.name === name)
 describe('편집·진단 도구', () => {
   it('이름·설명·risk를 갖추고 이름이 겹치지 않는다', () => {
     const tools = createEditTools({ api: fakeApi() })
-    expect(tools.length).toBe(7)
+    expect(tools.length).toBe(8)
     for (const tool of tools) {
       expect(tool.name).toMatch(/^[a-z_]+$/)
       expect(['read', 'write', 'run']).toContain(tool.risk)
@@ -34,6 +34,8 @@ describe('편집·진단 도구', () => {
     const tools = createEditTools({ api: fakeApi() })
     expect(byName(tools, 'save_captions').approval).toBe(true)
     expect(byName(tools, 'source_remix').approval).toBe(true)
+    // 원클릭 자막은 파일을 새로 만들고 몇 분을 태우므로 반드시 물어본다
+    expect(byName(tools, 'longform_captions').approval).toBe(true)
     expect(byName(tools, 'check_environment').approval).toBeUndefined()
   })
 
@@ -96,5 +98,42 @@ describe('편집·진단 도구', () => {
     })
     expect(api.calls[0].body.cues).toEqual(cues)
     expect(result.text).toContain('2줄을 저장')
+  })
+})
+
+describe('영상 자막 원클릭 도구', () => {
+  it('결과 파일 경로를 사람이 읽을 형태로 모아 준다', async () => {
+    const api = fakeApi({
+      '/api/longform-captions': {
+        ok: true,
+        cueCount: 205,
+        files: { aligned: 'D:/a_정렬.srt', filled: 'D:/a_정렬_공백메움.srt' },
+        scriptFile: { path: 'D:/a_대본.txt' },
+        burned: { path: 'D:/a_자막.mp4', mode: 'burn' },
+      },
+    })
+    const result = await byName(createEditTools({ api }), 'longform_captions').run({
+      mediaPath: 'D:/a.mp4',
+      burn: 'burn',
+      makeScript: true,
+      language: 'ko',
+    })
+    expect(result.text).toContain('205줄')
+    expect(result.text).toContain('D:/a_대본.txt')
+    expect(result.text).toContain('D:/a_자막.mp4')
+    expect(api.calls[0].body.mediaPath).toBe('D:/a.mp4')
+  })
+
+  it('자막 넣기가 실패하면 그 사실도 보고한다', async () => {
+    const api = fakeApi({
+      '/api/longform-captions': {
+        ok: true,
+        cueCount: 10,
+        files: { aligned: 'a.srt', filled: 'b.srt' },
+        burned: { error: 'ffmpeg 없음' },
+      },
+    })
+    const result = await byName(createEditTools({ api }), 'longform_captions').run({ mediaPath: 'D:/a.mp4' })
+    expect(result.text).toContain('ffmpeg 없음')
   })
 })

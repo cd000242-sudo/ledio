@@ -79,6 +79,15 @@ export function torchLibDir(pythonPath: string): string {
     : join(venvRoot, 'lib', 'site-packages', 'torch', 'lib')
 }
 
+/**
+ * STT에 넣을 음성을 뽑는다(16kHz 모노 wav).
+ * 영상 컨테이너를 그대로 물리면 Windows에서 프로세스가 즉사하는 경우가 있다(실측).
+ * 미리 뽑아두면 그 문제도 없고, 전사·정렬 두 단계가 같은 파일을 재사용해 디코딩도 한 번만 한다.
+ */
+export function buildAudioExtractArgs(mediaPath: string, outPath: string): string[] {
+  return ['-y', '-i', mediaPath, '-vn', '-ac', '1', '-ar', '16000', '-c:a', 'pcm_s16le', outPath]
+}
+
 export interface PhaseArgOptions extends WhisperxOptions {
   scriptPath: string
   segmentsJson: string
@@ -195,8 +204,26 @@ export async function runWhisperx(
   const stem = basename(options.mediaPath, extname(options.mediaPath))
   const segmentsJson = join(options.outputDir, stem + '.segments.json')
   const outJson = join(options.outputDir, stem + '.aligned.json')
+  const audioPath = join(options.outputDir, stem + '.16k.wav')
   const { device, computeType } = resolveCompute(await detectCuda(python), options.computeType)
-  const phaseOptions: PhaseArgOptions = { ...options, scriptPath, segmentsJson, outJson, device, computeType }
+
+  onProgress({ phase: 'transcribe', message: '음성을 뽑는 중' })
+  try {
+    await execa('ffmpeg', buildAudioExtractArgs(options.mediaPath, audioPath), { timeout: 1000 * 60 * 30 })
+  } catch (err) {
+    const error = err as { shortMessage?: string }
+    throw new Error('음성 추출 실패(ffmpeg): ' + (error.shortMessage ?? '알 수 없는 오류'))
+  }
+
+  const phaseOptions: PhaseArgOptions = {
+    ...options,
+    mediaPath: audioPath,
+    scriptPath,
+    segmentsJson,
+    outJson,
+    device,
+    computeType,
+  }
   const runOptions = {
     timeout: 1000 * 60 * 60,
     // ctranslate2가 cuDNN DLL을 찾게 torch/lib을 앞에 붙인다(없으면 GPU 실행이 즉사한다).
@@ -219,7 +246,14 @@ export async function runWhisperx(
 
   // 전사 프로세스가 완전히 끝난 뒤에 정렬을 띄운다 — 같이 올리면 GPU에서 충돌한다.
   onProgress({ phase: 'align', message: '단어 단위로 시간을 맞추는 중' })
-  await run('align', buildAlignArgs(phaseOptions))
+  try {
+    await run('align', buildAlignArgs(phaseOptions))
+  } catch (error) {
+    // TTS 데몬 등이 VRAM을 잡고 있으면 GPU 정렬이 죽는다(실측). 느려도 CPU로 끝내는 편이 낫다.
+    if ((phaseOptions.alignDevice ?? device) === 'cpu') throw error
+    onProgress({ phase: 'align', message: 'GPU가 모자라 CPU로 시간을 맞추는 중(조금 더 걸립니다)' })
+    await run('align', buildAlignArgs({ ...phaseOptions, alignDevice: 'cpu' }))
+  }
 
   return parseWhisperxJson(await readFile(outJson, 'utf8'))
 }

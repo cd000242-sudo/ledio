@@ -1453,6 +1453,22 @@ async function handleLongformCaptions(req, res, workspaceRoot, commandRunner) {
     maxChars: Number(body.maxChars) || 44,
   })
 
+  // 영상이면 자막을 바로 얹어 완성본까지 만든다(원클릭).
+  let burned = null
+  const burnMode = String(body.burn ?? 'none')
+  if (burnMode === 'burn' || burnMode === 'mux') {
+    const burnResult = await commandRunner({
+      command: 'burn-captions',
+      projectPath: mediaPath,
+      workspaceRoot,
+      args: ['burn-captions', mediaPath, '--srt', result.files.filled, '--mode', burnMode, '--json'],
+    })
+    const burnReport = parseJsonObjectFromText(burnResult.stdout)
+    burned = burnReport?.ok
+      ? { path: burnReport.outPath, mode: burnMode }
+      : { error: burnReport?.error || String(burnResult.stderr ?? '').trim().slice(-300) || '자막 넣기에 실패했습니다.' }
+  }
+
   // 대본이 없던 영상이면 받아쓴 내용으로 대본 파일을 만들어 준다.
   const method = String(body.method ?? 'agent-claude')
   const apiKey = String(body.apiKey ?? '').trim()
@@ -1471,6 +1487,7 @@ async function handleLongformCaptions(req, res, workspaceRoot, commandRunner) {
     sttCueCount: sttReport.cues.length,
     correction: correction ? { batches: correction.batches, failedBatches: correction.failedBatches } : null,
     scriptFile,
+    burned,
     ...result,
   })
 }

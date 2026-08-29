@@ -25,7 +25,7 @@ test('롱폼 자막 탭: 파일 넣기 전에는 실행이 잠겨 있다', async
 
   const tab = page.locator('.longform-tab')
   await expect(tab).toBeVisible()
-  await expect(tab).toContainText('컷 편집이 끝난 영상이나 음성')
+  await expect(tab).toContainText('영상 하나만 넣으면 끝납니다')
 
   // 드롭존이 보이고, 파일을 고르기 전에는 실행할 수 없다
   await expect(tab.locator('.longform-drop')).toContainText('끌어다 놓으세요')
@@ -33,6 +33,9 @@ test('롱폼 자막 탭: 파일 넣기 전에는 실행이 잠겨 있다', async
 
   // 진행 단계는 실행 전에는 숨어 있다
   await expect(tab.locator('.longform-steps')).toBeHidden()
+
+  // 완성 영상 옵션이 기본으로 '태워넣기'다 — 원클릭이 목적이다
+  await expect(tab.locator('.longform-burn')).toHaveValue('burn')
 
   // 대본은 선택 사항이고, 정확도에 도움이 된다고 안내한다
   await expect(tab.locator('.longform-script')).toHaveAttribute('placeholder', /대본이 있으면 붙여넣으세요/)

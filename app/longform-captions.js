@@ -9,6 +9,7 @@ const STEPS = [
   { id: 'correct', label: '대본 대조 보정' },
   { id: 'format', label: '자막 정리' },
   { id: 'audit', label: '검수' },
+  { id: 'burn', label: '영상에 넣기' },
 ]
 
 const MODEL_OPTIONS = [
@@ -51,7 +52,7 @@ export function renderLongformCaptionsTab(container, deps = {}) {
   const root = el('div', 'longform-tab')
 
   root.append(
-    el('p', 'longform-intro', '컷 편집이 끝난 영상이나 음성을 넣으면 롱폼용 자막 두 개를 만듭니다. 대본을 함께 주면 오타·고유명사·숫자를 문맥에 맞게 고칩니다.'),
+    el('p', 'longform-intro', '영상 하나만 넣으면 끝납니다 — 받아쓰기부터 자막 파일, 대본, 자막 넣은 완성 영상까지 한 번에 만듭니다.'),
   )
 
   // ── 입력 파일: 클릭 또는 드래그&드롭 ──
@@ -115,9 +116,20 @@ export function renderLongformCaptionsTab(container, deps = {}) {
   makeLabel.append(makeScript, el('span', null, '음성으로 대본 파일도 만들기'))
   const polishLabel = el('label', 'longform-check')
   polishLabel.append(polishScript, el('span', null, 'AI로 대본 다듬기 (군더더기·오타 정리)'))
+  const burnSelect = el('select', 'longform-burn')
+  for (const option of [
+    { value: 'burn', label: '영상에 자막 태워넣기 (어디서나 보임 · 재인코딩)' },
+    { value: 'mux', label: '자막 트랙으로 넣기 (빠름 · 켜야 보임)' },
+    { value: 'none', label: '넣지 않기 (SRT 파일만)' },
+  ]) {
+    const node = el('option', null, option.label)
+    node.value = option.value
+    burnSelect.append(node)
+  }
+
   const checks = el('div', 'longform-checks')
   checks.append(makeLabel, polishLabel)
-  root.append(checks)
+  root.append(checks, field('완성 영상', burnSelect))
 
   // ── 옵션 ──
   const modelSelect = el('select', 'longform-model')
@@ -220,6 +232,7 @@ export function renderLongformCaptionsTab(container, deps = {}) {
       ['공백메움 자막', data.files.filled],
     ]
     if (data.scriptFile) rows.push([data.scriptFile.polished ? '대본 (AI 다듬음)' : '대본', data.scriptFile.path])
+    if (data.burned?.path) rows.push([data.burned.mode === 'mux' ? '자막 트랙 영상' : '자막 넣은 영상', data.burned.path])
     for (const [label, path] of rows) {
       files.append(el('li', null, `${label}: ${path}`))
     }
@@ -233,6 +246,7 @@ export function renderLongformCaptionsTab(container, deps = {}) {
       stats.push('대본이 없어 보정은 건너뛰었습니다')
     }
     result.append(el('p', 'longform-stats', stats.join(' · ')))
+    if (data.burned?.error) result.append(el('p', 'longform-error', `자막 넣기 실패: ${data.burned.error}`))
 
     const audit = el('div', 'longform-audit')
     audit.append(el('h4', null, '검수 결과'))
@@ -258,6 +272,8 @@ export function renderLongformCaptionsTab(container, deps = {}) {
 
     // 받아쓰기가 끝나는 시점을 알 수 없으므로, 대본이 있으면 보정 단계로 넘어간 것처럼 표시한다.
     const stepTimer = deps.setTimer?.(() => markStep(state.scriptText.trim() ? 'correct' : 'format'), 60000)
+    const burnTimer =
+      burnSelect.value === 'burn' ? deps.setTimer?.(() => markStep('burn'), 180000) : null
 
     try {
       const response = await fetch('/api/longform-captions', {
@@ -269,6 +285,7 @@ export function renderLongformCaptionsTab(container, deps = {}) {
           method,
           apiKey,
           model: modelSelect.value,
+          burn: burnSelect.value,
           makeScript: makeScript.checked,
           polishScript: polishScript.checked,
           language: langInput.value.trim() || 'ko',
@@ -290,6 +307,7 @@ export function renderLongformCaptionsTab(container, deps = {}) {
       status.textContent = '실패'
     } finally {
       deps.clearTimer?.(stepTimer)
+      if (burnTimer) deps.clearTimer?.(burnTimer)
       state.busy = false
       updateRunnable()
     }

@@ -12,6 +12,7 @@ import { runUploadPackage } from './commands/uploadPackage.js'
 import { runAnalyzeSilence } from './commands/analyzeSilence.js'
 import { runAutoCaption } from './commands/autoCaption.js'
 import { runLongformStt } from './commands/longformStt.js'
+import { runBurnCaptions } from './commands/burnCaptions.js'
 import { runAutocut } from './commands/autocut.js'
 import { runNarrate } from './commands/narrate.js'
 import { runStoryPipeline } from './commands/storyPipeline.js'
@@ -117,6 +118,21 @@ program
   .option('--json', 'print JSON report')
   .action(async (mediaPath: string, options: Parameters<typeof runLongformStt>[1]) => {
     process.exitCode = await runLongformStt(mediaPath, options)
+  })
+
+program
+  .command('burn-captions')
+  .description('Puts an SRT onto a finished video (burned in, or as a subtitle track)')
+  .argument('<videoPath>', 'video file path')
+  .requiredOption('--srt <file>', 'subtitle file to put on the video')
+  .option('--out <file>', 'output video path')
+  .option('--mode <mode>', 'burn (rendered into the picture) or mux (subtitle track)', 'burn')
+  .option('--font-size <size>', 'subtitle font size')
+  .option('--margin-v <px>', 'bottom margin in pixels')
+  .option('--crf <value>', 'encode quality for burn mode')
+  .option('--json', 'print JSON report')
+  .action(async (videoPath: string, options: Parameters<typeof runBurnCaptions>[1]) => {
+    process.exitCode = await runBurnCaptions(videoPath, options)
   })
 
 program

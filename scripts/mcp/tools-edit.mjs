@@ -152,6 +152,45 @@ export function createEditTools({ api }) {
       },
     },
     {
+      name: 'longform_captions',
+      title: '영상 자막 원클릭',
+      description:
+        '영상이나 음성 파일 하나로 자막(SRT 2종)·대본·자막 넣은 완성 영상까지 한 번에 만든다. ' +
+        '사용자가 "이 영상 자막 넣어줘"처럼 말할 때 쓴다. 파일 경로는 사용자가 알려준 절대 경로를 그대로 넘긴다. ' +
+        '영상 길이의 1/5 정도 걸린다(16분 영상이면 3분 남짓).',
+      risk: 'run',
+      approval: true,
+      schema: {
+        mediaPath: z.string().min(1).describe('영상 또는 음성 파일의 전체 경로'),
+        script: z.string().optional().describe('대본이 있으면 넣는다. 받아쓰기 정확도가 올라간다'),
+        burn: z
+          .enum(['burn', 'mux', 'none'])
+          .default('burn')
+          .describe('burn=화면에 태워넣기, mux=자막 트랙, none=SRT 파일만'),
+        makeScript: z.boolean().default(true).describe('음성으로 대본 파일도 만들지'),
+        language: z.string().max(10).default('ko'),
+      },
+      async run(args) {
+        const data = await api.post('/api/longform-captions', {
+          mediaPath: args.mediaPath,
+          script: args.script ?? '',
+          burn: args.burn,
+          makeScript: args.makeScript,
+          language: args.language,
+        })
+        if (!data.ok) return { text: failureText(data, '자막 만들기 실패'), data }
+        const lines = [
+          `자막 ${data.cueCount}줄을 만들었습니다.`,
+          `- 정렬 자막: ${data.files.aligned}`,
+          `- 공백메움 자막: ${data.files.filled}`,
+        ]
+        if (data.scriptFile) lines.push(`- 대본: ${data.scriptFile.path}`)
+        if (data.burned?.path) lines.push(`- 자막 넣은 영상: ${data.burned.path}`)
+        if (data.burned?.error) lines.push(`- 자막 넣기 실패: ${data.burned.error}`)
+        return { text: lines.join('\n'), data }
+      },
+    },
+    {
       name: 'source_remix',
       title: '소스 짜집기',
       description:

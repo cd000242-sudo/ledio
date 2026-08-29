@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   buildAlignArgs,
+  buildAudioExtractArgs,
   buildInitialPrompt,
   buildTranscribeArgs,
   parseWhisperxJson,
@@ -115,5 +116,15 @@ describe('cuDNN 경로', () => {
     const dir = torchLibDir('C:/repo/.venv-stt/Scripts/python.exe')
     const normalized = dir.split(String.fromCharCode(92)).join('/')
     expect(normalized).toContain('.venv-stt/Lib/site-packages/torch/lib')
+  })
+})
+
+describe('음성 추출', () => {
+  it('16kHz 모노 wav로 뽑는다 — 영상 컨테이너를 직접 물리면 프로세스가 죽는 경우가 있다', () => {
+    const args = buildAudioExtractArgs('C:/영상/a.mp4', 'C:/out/a.16k.wav')
+    expect(args).toContain('-vn')
+    expect(args[args.indexOf('-ar') + 1]).toBe('16000')
+    expect(args[args.indexOf('-ac') + 1]).toBe('1')
+    expect(args.at(-1)).toBe('C:/out/a.16k.wav')
   })
 })

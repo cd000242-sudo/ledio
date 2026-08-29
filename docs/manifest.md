@@ -37,7 +37,7 @@
 | 소스 짜집기(AI 문장↔장면 매칭) | ✅ 완성 | `handleSourceRemix`, `src/…/source-remix` |
 | 무음 컷·타임라인 파형 | ✅ 완성 | `handleSilenceAnalyze`, `app/app.js` |
 | 자동 업데이트(GitHub 릴리즈) | ✅ 완성 | `electron/main.mjs` |
-| **롱폼 자막(WhisperX → 보정 → 재편성 → 공백메움 → 검수 → 대본 생성)** | ✅ 완성 | `app/longform-captions.js`, `src/captions/whisperx.ts`, `src/subtitles/` |
+| **롱폼 자막 원클릭(받아쓰기 → 보정 → 자막 → 대본 → 영상에 자막 넣기)** | ✅ 완성 | `app/longform-captions.js`, `src/captions/whisperx.ts`, `src/subtitles/` |
 | **앱 조종 비서(클로드코드 에이전트)** | ✅ 완성·배포 v0.3.0 | `scripts/mcp/`, `scripts/server/assistant-runtime.mjs`, `app/assistant.js` |
 | 낭독 속도 개선 | 📋 플랜만 | `docs/tts-speed-plan.md` |
 | 블로그 → 영상 파이프라인 | 📋 플랜만 | `docs/blog-to-video-plan.md` |
@@ -54,6 +54,8 @@
 
 | 날짜 | 결정 | 이유 |
 |---|---|---|
+| 2026-08-29 | STT 전에 ffmpeg로 16kHz 모노 wav를 먼저 뽑는다 | 영상 컨테이너를 직접 물리면 Node가 띄운 프로세스에서 즉사한다(실측). 디코딩도 한 번만 하게 된다 |
+| 2026-08-29 | 자막은 기본으로 화면에 태워넣는다(mux는 선택) | 쇼츠·릴스는 플레이어가 자막을 켜주지 않는다 |
 | 2026-08-29 | WhisperX는 `.venv-stt`에 격리 설치(TTS venv와 분리) | torch 버전이 충돌하면 낭독이 깨진다. CUDA 빌드를 따로 넣어야 GPU를 쓴다(pip 기본은 CPU 빌드) |
 | 2026-08-29 | 자막 보정은 텍스트만 바꾸고, 큐 수가 달라지면 그 배치를 버린다 | AI가 타임스탬프를 만들면 싱크가 통째로 밀린다 — 시각은 정렬 결과에서만 온다 |
 | 2026-08-29 | 패키지된 앱에서는 MCP 자식에 `ELECTRON_RUN_AS_NODE=1`을 준다 | `process.execPath`가 Electron 실행파일이라 그대로면 GUI를 띄운다. 릴리즈 빌드로 실제 확인하기 전엔 못 잡는 종류의 버그 |
