@@ -11,6 +11,7 @@ import { runDiscoverSources } from './commands/discoverSources.js'
 import { runUploadPackage } from './commands/uploadPackage.js'
 import { runAnalyzeSilence } from './commands/analyzeSilence.js'
 import { runAutoCaption } from './commands/autoCaption.js'
+import { runLongformStt } from './commands/longformStt.js'
 import { runAutocut } from './commands/autocut.js'
 import { runNarrate } from './commands/narrate.js'
 import { runStoryPipeline } from './commands/storyPipeline.js'
@@ -102,6 +103,19 @@ program
   .option('--json', 'print JSON report')
   .action(async (projectPath: string, options: Parameters<typeof runAutoCaption>[1]) => {
     process.exitCode = await runAutoCaption(projectPath, options)
+  })
+
+program
+  .command('longform-stt')
+  .description('Transcribes a video/audio file with WhisperX into word-level cues (longform captions step 1)')
+  .argument('<mediaPath>', 'video or audio file path')
+  .option('--model <model>', 'WhisperX model name', 'large-v3')
+  .option('--language <language>', 'spoken language code, or auto', 'ko')
+  .option('--compute-type <type>', 'ctranslate2 compute type', 'float16')
+  .option('--out-dir <dir>', 'directory for WhisperX intermediate output')
+  .option('--json', 'print JSON report')
+  .action(async (mediaPath: string, options: Parameters<typeof runLongformStt>[1]) => {
+    process.exitCode = await runLongformStt(mediaPath, options)
   })
 
 program

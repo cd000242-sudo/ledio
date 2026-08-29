@@ -10,4 +10,5 @@ contextBridge.exposeInMainWorld('shortsFactoryDesktop', {
     electron: process.versions.electron,
   },
   selectAndImportMedia: (payload) => ipcRenderer.invoke('shorts:select-and-import-media', payload),
+  selectFile: (payload) => ipcRenderer.invoke('shorts:select-file', payload),
 })

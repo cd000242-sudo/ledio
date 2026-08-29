@@ -1,6 +1,7 @@
 /* global AbortSignal, Buffer, URL, fetch, process, setTimeout, clearTimeout */
 import { createReadStream, existsSync } from 'node:fs'
 import { createAssistantRuntime } from './server/assistant-runtime.mjs'
+import { buildLongformOutputs, correctWithScript } from './server/longform-captions.mjs'
 import {
   COHERENCE_RULES,
   coupangViralPrompt,
@@ -1379,6 +1380,83 @@ async function handleAssistantApprove(req, res) {
   const approved = body.approved === true
   const settled = settleApproval(id, approved, approved ? null : '사용자가 취소했습니다.')
   sendJson(res, settled ? 200 : 404, { ok: settled, ...(settled ? {} : { error: '이미 끝난 승인 요청입니다.' }) })
+}
+
+// ── 롱폼 자막: 영상/음성 하나 → 정렬 SRT + 공백메움 SRT + 검수 리포트 ──
+
+/** 순수 변환 모듈은 빌드 산출물(dist)에서 가져온다 — 로직을 서버에 복제하지 않는다. */
+async function loadSubtitleModules() {
+  const [srt, reformat, gaps, audit, correct] = await Promise.all([
+    import('../dist/subtitles/srt.js'),
+    import('../dist/subtitles/reformat.js'),
+    import('../dist/subtitles/gaps.js'),
+    import('../dist/subtitles/audit.js'),
+    import('../dist/subtitles/correct.js'),
+  ])
+  return {
+    subtitles: {
+      reformatSubtitles: reformat.reformatSubtitles,
+      fillGaps: gaps.fillGaps,
+      serializeSrt: srt.serializeSrt,
+      auditSubtitles: audit.auditSubtitles,
+      summarizeAudit: audit.summarizeAudit,
+    },
+    correct,
+  }
+}
+
+async function handleLongformCaptions(req, res, workspaceRoot, commandRunner) {
+  const body = await readJsonBody(req, 2 * 1024 * 1024)
+  const mediaPath = String(body.mediaPath ?? '').trim()
+  if (!mediaPath || !existsSync(mediaPath)) {
+    sendJson(res, 400, { ok: false, error: '영상 또는 음성 파일을 찾을 수 없습니다.' })
+    return
+  }
+
+  // ① 세밀 STT — 무거운 일이라 CLI(WhisperX)에 맡긴다.
+  const sttArgs = ['longform-stt', mediaPath, '--json']
+  if (body.language) sttArgs.push('--language', String(body.language))
+  if (body.model) sttArgs.push('--model', String(body.model))
+  const sttResult = await commandRunner({
+    command: 'longform-stt',
+    projectPath: mediaPath,
+    workspaceRoot,
+    args: sttArgs,
+  })
+  const sttReport = parseJsonObjectFromText(sttResult.stdout)
+  if (sttResult.exitCode !== 0 || !sttReport?.ok || !Array.isArray(sttReport.cues) || sttReport.cues.length === 0) {
+    const detail = sttReport?.error || [sttResult.stderr, sttResult.stdout].map((v) => String(v ?? '').trim()).filter(Boolean).join(' ').slice(-300)
+    sendJson(res, 200, { ok: false, error: `받아쓰기 실패: ${detail || '결과가 비어 있습니다.'}` })
+    return
+  }
+
+  const { subtitles, correct } = await loadSubtitleModules()
+  let cues = sttReport.cues
+  let correction = null
+
+  // ② 대본 대조 보정 — 대본이 있을 때만. 시각은 건드리지 않고 텍스트만 고친다.
+  const script = String(body.script ?? '').trim()
+  if (script) {
+    const method = String(body.method ?? 'agent-claude')
+    const apiKey = String(body.apiKey ?? '').trim()
+    const askModel = (prompt) => generateWithMethod(method, apiKey, prompt, false, true)
+    correction = await correctWithScript(cues, script, { askModel, correct })
+    cues = correction.cues
+  }
+
+  // ③④⑤ 재편성 → 공백 메움 → 검수
+  const result = await buildLongformOutputs(cues, mediaPath, { subtitles, writeFile }, {
+    minChars: Number(body.minChars) || 18,
+    maxChars: Number(body.maxChars) || 44,
+  })
+
+  sendJson(res, 200, {
+    ok: true,
+    mediaPath,
+    sttCueCount: sttReport.cues.length,
+    correction: correction ? { batches: correction.batches, failedBatches: correction.failedBatches } : null,
+    ...result,
+  })
 }
 
 async function handleAssistantStatus(res) {
@@ -3257,6 +3335,11 @@ export function createShortsFactoryServer(options = {}) {
 
       if (pathname.startsWith('/api/scripts/') && req.method === 'DELETE') {
         await handleScriptDelete(pathname, res, workspaceRoot)
+        return
+      }
+
+      if (pathname === '/api/longform-captions' && req.method === 'POST') {
+        await handleLongformCaptions(req, res, workspaceRoot, commandRunner)
         return
       }
 

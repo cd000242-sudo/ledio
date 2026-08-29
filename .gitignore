@@ -17,4 +17,5 @@ projects/
 
 # TTS 파이썬 환경(대용량) + 개인 목소리 샘플(개인정보)
 .venv-tts/
+.venv-stt/
 voices/

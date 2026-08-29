@@ -25,6 +25,7 @@ import { renderImageGalleryTab, renderNarrationStudioTab, renderScriptLibraryTab
 import { renderProductWizardTab } from './product-wizard.js';
 import { getSettings, renderSettingsTab } from './settings.js';
 import { mountAssistant } from './assistant.js';
+import { renderLongformCaptionsTab } from './longform-captions.js';
 
 const platformLabels = {
   youtube_shorts: '유튜브 쇼츠',
@@ -232,6 +233,7 @@ const ttsVolumeLabels = {
 const tabs = [
   { id: 'wizard', label: '원클릭 제작', title: '원클릭 제작', eyebrow: '대본/클립 → 완성 영상' },
   { id: 'manual', label: '수동편집하기', title: '수동 편집', eyebrow: '타임라인과 세부 도구' },
+  { id: 'captions', label: '롱폼 자막', title: '롱폼 자막', eyebrow: '영상·음성 → SRT 두 개' },
   { id: 'settings', label: '환경설정', title: '환경설정', eyebrow: '기본값과 도구 상태' },
 ];
 
@@ -1405,7 +1407,38 @@ function renderTabContent() {
   const content = byId('tabContent');
   if (state.selectedTab === 'wizard') renderWizardHub(content);
   if (state.selectedTab === 'manual') renderManualTab(content);
+  if (state.selectedTab === 'captions') renderLongformCaptions(content);
   if (state.selectedTab === 'settings') renderSettingsTab(content);
+}
+
+/** 롱폼 자막 탭 — 파일 선택은 Electron 다이얼로그(복사 없이 경로만)를 쓴다. */
+function renderLongformCaptions(content) {
+  const desktop = window.shortsFactoryDesktop;
+  renderLongformCaptionsTab(content, {
+    pickMedia: async () => {
+      if (!desktop?.selectFile) {
+        window.alert('파일 선택은 데스크톱 앱에서만 됩니다. 앱으로 실행해 주세요.');
+        return null;
+      }
+      const picked = await desktop.selectFile({ kind: 'media' });
+      return picked?.path ?? null;
+    },
+    pickScript: async () => {
+      if (!desktop?.selectFile) return null;
+      const picked = await desktop.selectFile({ kind: 'script' });
+      return picked?.ok ? picked : null;
+    },
+    // 엔진별로 키가 따로 저장돼 있다(story-wizard와 같은 규칙).
+    getSettings: () => getSettings(),
+    apiKeyFor: (method) => {
+      const settings = getSettings();
+      return {
+        'api-gpt': settings.openaiApiKey,
+        'api-gemini': settings.geminiApiKey,
+        'api-claude': settings.anthropicApiKey,
+      }[method] || '';
+    },
+  });
 }
 
 function renderGuideTab(content) {

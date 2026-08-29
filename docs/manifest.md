@@ -37,6 +37,7 @@
 | 소스 짜집기(AI 문장↔장면 매칭) | ✅ 완성 | `handleSourceRemix`, `src/…/source-remix` |
 | 무음 컷·타임라인 파형 | ✅ 완성 | `handleSilenceAnalyze`, `app/app.js` |
 | 자동 업데이트(GitHub 릴리즈) | ✅ 완성 | `electron/main.mjs` |
+| **롱폼 자막(WhisperX → 보정 → 재편성 → 공백메움 → 검수)** | ✅ 완성 | `app/longform-captions.js`, `src/captions/whisperx.ts`, `src/subtitles/` |
 | **앱 조종 비서(클로드코드 에이전트)** | ✅ 완성·배포 v0.3.0 | `scripts/mcp/`, `scripts/server/assistant-runtime.mjs`, `app/assistant.js` |
 | 낭독 속도 개선 | 📋 플랜만 | `docs/tts-speed-plan.md` |
 | 블로그 → 영상 파이프라인 | 📋 플랜만 | `docs/blog-to-video-plan.md` |
@@ -53,6 +54,8 @@
 
 | 날짜 | 결정 | 이유 |
 |---|---|---|
+| 2026-08-29 | WhisperX는 `.venv-stt`에 격리 설치(TTS venv와 분리) | torch 버전이 충돌하면 낭독이 깨진다. CUDA 빌드를 따로 넣어야 GPU를 쓴다(pip 기본은 CPU 빌드) |
+| 2026-08-29 | 자막 보정은 텍스트만 바꾸고, 큐 수가 달라지면 그 배치를 버린다 | AI가 타임스탬프를 만들면 싱크가 통째로 밀린다 — 시각은 정렬 결과에서만 온다 |
 | 2026-08-29 | 패키지된 앱에서는 MCP 자식에 `ELECTRON_RUN_AS_NODE=1`을 준다 | `process.execPath`가 Electron 실행파일이라 그대로면 GUI를 띄운다. 릴리즈 빌드로 실제 확인하기 전엔 못 잡는 종류의 버그 |
 | 2026-08-29 | 비서는 **Claude Code CLI를 spawn**하고 Agent SDK를 쓰지 않는다 | 사용자 구독을 그대로 쓰므로 추가 API 비용 0원 |
 | 2026-08-29 | 앱 기능은 **MCP 도구**로 노출하고, MCP 서버는 기존 `/api/*`를 호출한다 | 파이프라인 로직 중복 0. 서버가 이미 모든 기능의 단일 창구다 |
@@ -68,7 +71,7 @@
 
 ## 4. 다음 할 일 (우선순위)
 
-1. **비서를 실사용해보고 막히는 지점 수집** — 도구를 더 얹기 전에 실제 사용 데이터가 먼저다.
+1. **비서·롱폼 자막을 실사용해보고 막히는 지점 수집** — 도구를 더 얹기 전에 실제 사용 데이터가 먼저다.
 2. **렌더를 비동기 잡으로** — 지금은 도구가 끝날 때까지 대화가 몇 분 멈춘다. 잡 큐에 얹고 진행률을 보고하게.
 3. **파일 크기 부채** — `app/app.js`(4.5k) → `story-wizard.js`(2.1k) → `local-server.mjs`(3.3k) 순으로 분할.
 4. **낭독 속도** — `docs/tts-speed-plan.md`의 4단계. 5분 대본 6~12분은 실사용에 부담.
@@ -84,6 +87,7 @@
 | `docs/manifest.md` (이 문서) | 단일 진실 — 상태·결정·다음 할 일 | 🟢 살아 있음 |
 | `docs/architecture.md` | 구조 계약, 깨지면 안 되는 것 목록 | 🟢 살아 있음 — 코드 바꾸기 전에 본다 |
 | `docs/claude-agent-integration-plan.md` | 비서 5단계 계획 + 완료 기록 | 🔵 완료 — 이력 참고용 |
+| `docs/longform-captions-plan.md` | 롱폼 자막 탭 설계 | 🔵 완료 — 이력 참고용 |
 | `docs/shopping-shorts-assistant-plan.md` | 쇼핑쇼츠 잡 폴더 자동화 6단계 | 🟡 미착수 플랜 |
 | `docs/tts-speed-plan.md` | 낭독 속도 4단계 | 🟡 미착수 플랜 |
 | `docs/blog-to-video-plan.md` | 블로그 글 → 영상 | 🟡 미착수 플랜 |

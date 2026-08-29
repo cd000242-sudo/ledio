@@ -3132,3 +3132,102 @@ body[data-mode='simple'] #workbenchToggleBtn {
   display: flex;
   gap: 8px;
 }
+
+
+/* ── 롱폼 자막 탭 ── */
+.longform-tab {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-width: 760px;
+}
+
+.longform-intro {
+  color: var(--muted);
+  line-height: 1.6;
+  margin: 0;
+}
+
+.longform-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.longform-path {
+  color: var(--muted);
+  font-size: 12px;
+  word-break: break-all;
+}
+
+.longform-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.longform-script {
+  width: 100%;
+  resize: vertical;
+  padding: 9px 11px;
+  border-radius: 10px;
+  border: 1px solid var(--line-strong);
+  background: var(--bg-strong);
+  color: var(--ink);
+  font: inherit;
+}
+
+.longform-options {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 10px;
+}
+
+.longform-status {
+  color: var(--muted);
+  margin: 0;
+}
+
+.longform-result {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.longform-files {
+  margin: 0;
+  padding-left: 18px;
+  word-break: break-all;
+  line-height: 1.7;
+}
+
+.longform-stats {
+  color: var(--muted);
+  margin: 0;
+}
+
+.longform-audit {
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: var(--bg-strong);
+  line-height: 1.6;
+}
+
+.longform-audit h4 {
+  margin: 0 0 6px;
+}
+
+.longform-audit p {
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+.longform-error {
+  color: var(--red);
+  white-space: pre-wrap;
+  margin: 0;
+}

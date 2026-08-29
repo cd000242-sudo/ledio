@@ -11,6 +11,7 @@ export default tseslint.config(
       'samples/**',
       'tmp/**',
       '.venv-tts/**',
+      '.venv-stt/**',
       'voices/**',
       'projects/**',
     ],

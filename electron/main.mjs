@@ -1,7 +1,7 @@
 /* global process, URL */
 import { app, BrowserWindow, Menu, dialog, ipcMain, shell } from 'electron'
 import electronUpdater from 'electron-updater'
-import { copyFile, mkdir } from 'node:fs/promises'
+import { copyFile, mkdir, readFile } from 'node:fs/promises'
 import { basename, dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createShortsFactoryServer, killAllCliChildren } from '../scripts/local-server.mjs'
@@ -118,6 +118,32 @@ async function createWindow() {
   await mainWindow.loadURL(appUrl)
   mainWindow.show()
 }
+
+/**
+ * 파일 하나를 고르고 **경로만** 돌려준다(복사하지 않는다).
+ * 롱폼 자막처럼 원본 자리에 결과를 만들어야 하는 기능이 쓴다.
+ * 대본 파일이면 내용도 같이 읽어 준다.
+ */
+ipcMain.handle('shorts:select-file', async (_event, payload = {}) => {
+  const kind = payload.kind === 'script' ? 'script' : 'media'
+  const filters =
+    kind === 'script'
+      ? [{ name: '대본', extensions: ['md', 'txt'] }]
+      : [{ name: '영상·음성', extensions: ['mp4', 'mov', 'mkv', 'webm', 'avi', 'm4v', 'mp3', 'wav', 'm4a', 'aac', 'flac'] }]
+  const result = await dialog.showOpenDialog(mainWindow, {
+    title: kind === 'script' ? '대본 파일 선택' : '영상 또는 음성 선택',
+    properties: ['openFile'],
+    filters,
+  })
+  if (result.canceled || !result.filePaths[0]) return { ok: true, path: null }
+  const path = result.filePaths[0]
+  if (kind !== 'script') return { ok: true, path }
+  try {
+    return { ok: true, path, text: await readFile(path, 'utf8') }
+  } catch (error) {
+    return { ok: false, error: String(error?.message ?? error) }
+  }
+})
 
 ipcMain.handle('shorts:select-and-import-media', async (_event, payload = {}) => {
   const kind = payload.kind === 'image' || payload.kind === 'audio' ? payload.kind : 'video'
