@@ -3,6 +3,7 @@ import { createReadStream, existsSync } from 'node:fs'
 import { createAssistantRuntime } from './server/assistant-runtime.mjs'
 import {
   buildBurnSrt,
+  proofreadCues,
   buildLongformOutputs,
   buildScriptFile,
   correctWithScript,
@@ -1417,13 +1418,14 @@ async function handleAssistantApprove(req, res) {
 
 /** 순수 변환 모듈은 빌드 산출물(dist)에서 가져온다 — 로직을 서버에 복제하지 않는다. */
 async function loadSubtitleModules() {
-  const [srt, reformat, gaps, audit, correct, script] = await Promise.all([
+  const [srt, reformat, gaps, audit, correct, script, glossary] = await Promise.all([
     import('../dist/subtitles/srt.js'),
     import('../dist/subtitles/reformat.js'),
     import('../dist/subtitles/gaps.js'),
     import('../dist/subtitles/audit.js'),
     import('../dist/subtitles/correct.js'),
     import('../dist/subtitles/script.js'),
+    import('../dist/subtitles/glossary.js'),
   ])
   return {
     subtitles: {
@@ -1435,7 +1437,15 @@ async function loadSubtitleModules() {
     },
     correct,
     script,
+    glossary,
   }
+}
+
+/** 용어 사전을 받아쓰기 힌트 한 줄로 만든다(모듈은 dist에 있으므로 지연 로딩). */
+async function glossaryHint(text) {
+  if (!String(text ?? '').trim()) return ''
+  const glossary = await import('../dist/subtitles/glossary.js')
+  return glossary.glossaryHint(glossary.parseGlossary(text))
 }
 
 async function handleLongformCaptions(req, res, workspaceRoot, commandRunner) {
@@ -1451,8 +1461,10 @@ async function handleLongformCaptions(req, res, workspaceRoot, commandRunner) {
   const sttArgs = ['longform-stt', mediaPath, '--json']
   if (body.language) sttArgs.push('--language', String(body.language))
   if (body.model) sttArgs.push('--model', String(body.model))
-  // 대본 앞부분을 받아쓰기 힌트로 넘긴다 — 고유명사·숫자를 처음부터 맞게 받아쓴다.
-  if (script) sttArgs.push('--initial-prompt', script.slice(0, 400))
+  // 대본 앞부분과 용어 사전을 받아쓰기 힌트로 넘긴다 — 고유명사·숫자를 처음부터 맞게 받아쓴다.
+  const glossaryText = String(body.glossary ?? '')
+  const hintParts = [script.slice(0, 300), await glossaryHint(glossaryText)].filter(Boolean)
+  if (hintParts.length > 0) sttArgs.push('--initial-prompt', hintParts.join(' ').slice(0, 400))
   const sttResult = await commandRunner({
     command: 'longform-stt',
     projectPath: mediaPath,
@@ -1466,7 +1478,7 @@ async function handleLongformCaptions(req, res, workspaceRoot, commandRunner) {
     return
   }
 
-  const { subtitles, correct, script: scriptModule } = await loadSubtitleModules()
+  const { subtitles, correct, script: scriptModule, glossary: glossaryModule } = await loadSubtitleModules()
   let cues = sttReport.cues
   let correction = null
 
@@ -1477,6 +1489,20 @@ async function handleLongformCaptions(req, res, workspaceRoot, commandRunner) {
     correction = await correctWithScript(cues, script, { askModel, correct })
     cues = correction.cues
   }
+
+  // ②-b 대본이 없어도 문맥 교정을 한 번 돌린다(사용자가 켠 경우).
+  let proofread = null
+  if (!script && body.proofread === true) {
+    const askModel = (prompt) =>
+      generateWithMethod(String(body.method ?? 'agent-claude'), String(body.apiKey ?? '').trim(), prompt, false, true)
+    proofread = await proofreadCues(cues, glossaryText, { askModel, correct, glossary: glossaryModule })
+    cues = proofread.cues
+  }
+
+  // ②-c 용어 사전 — 고정된 오타를 규칙으로 바로잡는다(시각은 그대로).
+  const parsedGlossary = glossaryModule.parseGlossary(glossaryText)
+  const glossaryResult = glossaryModule.applyGlossary(cues, parsedGlossary)
+  cues = glossaryResult.cues
 
   // ③④⑤ 재편성 → 공백 메움 → 검수
   const result = await buildLongformOutputs(cues, mediaPath, { subtitles, writeFile }, {
@@ -1496,7 +1522,24 @@ async function handleLongformCaptions(req, res, workspaceRoot, commandRunner) {
       command: 'burn-captions',
       projectPath: mediaPath,
       workspaceRoot,
-      args: ['burn-captions', mediaPath, '--srt', burnSrt.path, '--mode', burnMode, '--json'],
+      args: [
+        'burn-captions',
+        mediaPath,
+        '--srt',
+        burnSrt.path,
+        '--mode',
+        burnMode,
+        '--preset',
+        String(body.stylePreset ?? 'basic'),
+        ...(body.fontSize ? ['--font-size', String(body.fontSize)] : []),
+        ...(body.outline ? ['--outline', String(body.outline)] : []),
+        ...(body.color ? ['--color', String(body.color)] : []),
+        ...(body.outlineColor ? ['--outline-color', String(body.outlineColor)] : []),
+        ...(body.position ? ['--position', String(body.position)] : []),
+        ...(body.bold === true ? ['--bold'] : []),
+        ...(body.box === true ? ['--box'] : []),
+        '--json',
+      ],
     })
     const burnReport = parseJsonObjectFromText(burnResult.stdout)
     burned = burnReport?.ok
@@ -1527,6 +1570,8 @@ async function handleLongformCaptions(req, res, workspaceRoot, commandRunner) {
     removedFiles: tidied.removed.length,
     sttCueCount: sttReport.cues.length,
     correction: correction ? { batches: correction.batches, failedBatches: correction.failedBatches } : null,
+    proofread: proofread ? { batches: proofread.batches, failedBatches: proofread.failedBatches } : null,
+    glossaryFixed: glossaryResult.changed,
     scriptFile,
     burned,
     ...result,

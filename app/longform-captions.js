@@ -30,6 +30,20 @@ const ENGINE_OPTIONS = [
   { value: 'api-gemini', label: 'Gemini API 키' },
 ]
 
+const STYLE_PRESETS = [
+  { value: 'basic', label: '기본 (흰 글씨 + 검은 테두리)' },
+  { value: 'bold', label: '쇼츠형 (굵게 + 두꺼운 테두리)' },
+  { value: 'highlight', label: '강조 (노란 글씨)' },
+  { value: 'box', label: '정보형 (반투명 박스)' },
+  { value: 'pop', label: '예능형 (청록 강조)' },
+]
+
+const POSITION_OPTIONS = [
+  { value: 'bottom', label: '아래' },
+  { value: 'middle', label: '가운데' },
+  { value: 'top', label: '위' },
+]
+
 const KEEP_OPTIONS = [
   { value: 'script', label: '완성 영상 + 대본 (자막 파일은 정리)' },
   { value: 'video', label: '완성 영상만 (나머지 전부 정리)' },
@@ -56,6 +70,14 @@ const state = {
   keep: 'script',
   makeScript: true,
   polishScript: false,
+  proofread: true,
+  glossary: '',
+  stylePreset: 'bold',
+  color: '#FFFFFF',
+  outlineColor: '#000000',
+  outline: 4,
+  fontSize: 20,
+  position: 'bottom',
   busy: false,
   activeStep: null,
   finished: false,
@@ -145,6 +167,14 @@ async function runCaptions(deps) {
         model: state.model,
         burn: state.burn,
         keep: state.keep,
+        proofread: state.proofread,
+        glossary: state.glossary,
+        stylePreset: state.stylePreset,
+        color: state.color,
+        outlineColor: state.outlineColor,
+        outline: state.outline,
+        fontSize: state.fontSize,
+        position: state.position,
         makeScript: state.makeScript,
         polishScript: state.polishScript,
         language: state.language.trim() || 'ko',
@@ -279,6 +309,94 @@ function buildTab(deps) {
     state.keep = keepSelect.value
   })
   root.append(checks, field('완성 영상', burnSelect), field('결과물 정리', keepSelect))
+
+  // ── 오타 잡기 ──
+  const proofread = el('input')
+  proofread.type = 'checkbox'
+  proofread.checked = state.proofread
+  proofread.addEventListener('change', () => {
+    state.proofread = proofread.checked
+  })
+  const proofreadLabel = el('label', 'longform-check')
+  proofreadLabel.append(proofread, el('span', null, 'AI로 오타 검수 (대본이 없어도 문맥으로 교정)'))
+  checks.append(proofreadLabel)
+
+  const glossaryArea = el('textarea', 'longform-glossary')
+  glossaryArea.rows = 3
+  glossaryArea.placeholder = [
+    'AID => AI들',
+    '기묘한자동화',
+    '',
+    '잘못 들리는 말을 "틀린표기 => 바른표기"로 적으세요. 단어만 적으면 받아쓰기 힌트로만 씁니다.',
+  ].join(String.fromCharCode(10))
+  glossaryArea.value = state.glossary
+  glossaryArea.addEventListener('input', () => {
+    state.glossary = glossaryArea.value
+  })
+
+  // ── 자막 모양 ──
+  const styleSelect = select('longform-style', STYLE_PRESETS, state.stylePreset)
+  const colorInput = el('input', 'longform-color')
+  colorInput.type = 'color'
+  colorInput.value = state.color
+  const outlineColorInput = el('input', 'longform-color')
+  outlineColorInput.type = 'color'
+  outlineColorInput.value = state.outlineColor
+  const outlineInput = el('input', 'longform-num longform-style-num')
+  outlineInput.type = 'number'
+  outlineInput.min = '0'
+  outlineInput.max = '10'
+  outlineInput.value = String(state.outline)
+  const fontSizeInput = el('input', 'longform-num longform-style-num')
+  fontSizeInput.type = 'number'
+  fontSizeInput.min = '10'
+  fontSizeInput.max = '48'
+  fontSizeInput.value = String(state.fontSize)
+  const positionSelect = select('longform-position', POSITION_OPTIONS, state.position)
+
+  // 프리셋을 고르면 색·두께·크기를 그 값으로 되돌린다(그 뒤 손보면 그게 우선).
+  styleSelect.addEventListener('change', () => {
+    state.stylePreset = styleSelect.value
+    const preset = {
+      basic: { color: '#FFFFFF', outlineColor: '#000000', outline: 2, fontSize: 18 },
+      bold: { color: '#FFFFFF', outlineColor: '#000000', outline: 4, fontSize: 20 },
+      highlight: { color: '#FFE14D', outlineColor: '#000000', outline: 3, fontSize: 20 },
+      box: { color: '#FFFFFF', outlineColor: '#000000', outline: 0, fontSize: 18 },
+      pop: { color: '#7CF6E8', outlineColor: '#101418', outline: 4, fontSize: 20 },
+    }[styleSelect.value]
+    if (preset) Object.assign(state, preset)
+    repaint()
+  })
+  colorInput.addEventListener('input', () => {
+    state.color = colorInput.value
+  })
+  outlineColorInput.addEventListener('input', () => {
+    state.outlineColor = outlineColorInput.value
+  })
+  outlineInput.addEventListener('input', () => {
+    state.outline = Number(outlineInput.value) || 0
+  })
+  fontSizeInput.addEventListener('input', () => {
+    state.fontSize = Number(fontSizeInput.value) || 20
+  })
+  positionSelect.addEventListener('change', () => {
+    state.position = positionSelect.value
+  })
+
+  const styleGrid = el('div', 'longform-options longform-style-grid')
+  styleGrid.append(
+    field('스타일', styleSelect),
+    field('글자색', colorInput),
+    field('테두리색', outlineColorInput),
+    field('테두리 두께', outlineInput),
+    field('글자 크기', fontSizeInput),
+    field('위치', positionSelect),
+  )
+  const styleBox = el('details', 'longform-advanced longform-style-box')
+  const styleSummary = document.createElement('summary')
+  styleSummary.textContent = '자막 모양'
+  styleBox.append(styleSummary, styleGrid)
+  root.append(field('용어 사전 (선택)', glossaryArea), styleBox)
 
   // ── 세부 설정 ──
   const modelSelect = select('longform-model', MODEL_OPTIONS, state.model)

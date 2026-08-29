@@ -76,3 +76,27 @@ export function mergeCorrectedBatches(cues: Cue[], results: { offset: number; cu
   }
   return merged
 }
+
+/**
+ * 대본이 없을 때의 교정 프롬프트 — 문맥만 보고 잘못 들린 말을 고친다.
+ * 대본 대조와 규칙은 같다: **줄 수·타임스탬프를 바꾸지 않고 텍스트만** 고친다.
+ */
+export function buildProofreadPrompt(cues: Cue[], terms: string[] = []): string {
+  const numbered = cues.map((cue, index) => `${index + 1}. ${cue.text}`).join('\n')
+  return [
+    '아래는 음성인식(STT)으로 만든 자막이다. 문맥을 보고 잘못 들린 부분만 고쳐라.',
+    '',
+    '규칙:',
+    '- 오타, 잘못 들린 단어, 영어·숫자·고유명사 표기를 문맥에 맞게 고친다.',
+    '- 말투와 내용은 그대로 둔다. 요약하거나 다듬지 마라.',
+    '- 문장을 합치거나 나누지 마라. 줄 수를 바꾸지 마라.',
+    '- 각 줄의 번호를 유지하고, 고칠 것이 없는 줄도 원문 그대로 다시 출력한다.',
+    '- 설명 없이 "번호. 텍스트" 형식의 줄만 출력한다.',
+    terms.length > 0 ? `- 이 표현들은 바르게 쓴 것이다: ${terms.join(', ')}` : '',
+    '',
+    '=== 자막 ===',
+    numbered,
+  ]
+    .filter(Boolean)
+    .join('\n')
+}

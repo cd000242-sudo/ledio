@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { buildBurnArgs, buildForceStyle, burnedOutputName, escapeFilterPath } from './burnCaptions.js'
+import {
+  buildBurnArgs,
+  buildForceStyle,
+  burnedOutputName,
+  escapeFilterPath,
+  resolveStyle,
+  toAssColor,
+} from './burnCaptions.js'
 
 describe('필터 경로 이스케이프', () => {
   it('윈도우 드라이브 콜론을 이스케이프한다 — 안 하면 필터 파서가 옵션으로 읽어 실패한다', () => {
@@ -53,5 +60,34 @@ describe('출력 파일 이름', () => {
   it('원본 옆에 두고 덮어쓰지 않는다', () => {
     expect(burnedOutputName('C:/영상/강의 1편.mp4')).toBe('C:/영상/강의 1편_자막.mp4')
     expect(burnedOutputName('C:/영상/강의.mkv', 'mux')).toBe('C:/영상/강의_자막트랙.mkv')
+  })
+})
+
+describe('자막 색과 프리셋', () => {
+  it('#RRGGBB를 ASS 색(&HBBGGRR)으로 뒤집는다', () => {
+    expect(toAssColor('#FFE14D', '#FFFFFF')).toBe('&H004DE1FF')
+    expect(toAssColor('#000000', '#FFFFFF')).toBe('&H00000000')
+    // 잘못된 값이면 기본색으로 물러선다
+    expect(toAssColor('빨강', '#FFFFFF')).toBe('&H00FFFFFF')
+  })
+
+  it('프리셋을 고르고 일부만 손볼 수 있다', () => {
+    const style = resolveStyle('highlight', { outline: 6 })
+    expect(style.color).toBe('#FFE14D')
+    expect(style.bold).toBe(true)
+    expect(style.outline).toBe(6)
+  })
+
+  it('스타일이 force_style 문자열에 반영된다', () => {
+    const style = buildForceStyle(resolveStyle('bold', { color: '#FF0000', position: 'top' }))
+    expect(style).toContain('PrimaryColour=&H000000FF')
+    expect(style).toContain('Bold=1')
+    expect(style).toContain('Outline=4')
+    expect(style).toContain('Alignment=8')
+  })
+
+  it('박스형은 BorderStyle 3을 쓴다', () => {
+    expect(buildForceStyle(resolveStyle('box'))).toContain('BorderStyle=3')
+    expect(buildForceStyle(resolveStyle('basic'))).toContain('BorderStyle=1')
   })
 })

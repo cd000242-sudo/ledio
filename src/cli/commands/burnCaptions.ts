@@ -1,14 +1,21 @@
 import { execa } from 'execa'
 import { access } from 'node:fs/promises'
-import { buildBurnArgs, burnedOutputName, type BurnMode } from '../../video/burnCaptions.js'
+import { buildBurnArgs, burnedOutputName, resolveStyle, type BurnMode } from '../../video/burnCaptions.js'
 import { logger } from '../../utils/logger.js'
 
 export interface BurnCaptionsOptions {
   srt: string
   out?: string
   mode?: string
+  preset?: string
   fontSize?: string
   marginV?: string
+  outline?: string
+  color?: string
+  outlineColor?: string
+  bold?: boolean
+  box?: boolean
+  position?: string
   crf?: string
   json?: boolean
 }
@@ -31,7 +38,16 @@ export async function runBurnCaptions(videoPath: string, options: BurnCaptionsOp
       outPath,
       mode,
       crf: numberOption(options.crf),
-      style: { fontSize: numberOption(options.fontSize), marginV: numberOption(options.marginV) },
+      style: resolveStyle(options.preset, {
+        ...(numberOption(options.fontSize) !== undefined ? { fontSize: numberOption(options.fontSize) } : {}),
+        ...(numberOption(options.marginV) !== undefined ? { marginV: numberOption(options.marginV) } : {}),
+        ...(numberOption(options.outline) !== undefined ? { outline: numberOption(options.outline) } : {}),
+        ...(options.color ? { color: options.color } : {}),
+        ...(options.outlineColor ? { outlineColor: options.outlineColor } : {}),
+        ...(options.bold ? { bold: true } : {}),
+        ...(options.box ? { box: true } : {}),
+        ...(options.position ? { position: options.position as 'bottom' | 'middle' | 'top' } : {}),
+      }),
     })
 
     const result = await execa('ffmpeg', args, { timeout: 1000 * 60 * 120, reject: false })

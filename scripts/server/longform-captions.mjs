@@ -143,3 +143,27 @@ export async function tidyOutputs(mediaPath, keep, madeVideo, deps = {}) {
   }
   return { removed }
 }
+
+/**
+ * 대본 없이 문맥만으로 오타를 교정한다.
+ * 대본 대조와 같은 안전장치를 쓴다 — 줄 수가 어긋난 배치는 버리고 원본을 지킨다.
+ */
+export async function proofreadCues(cues, glossaryText, deps) {
+  const { askModel, correct, glossary } = deps
+  const terms = glossary.parseGlossary(glossaryText).terms
+  const batches = correct.splitIntoBatches(cues)
+  const results = []
+  for (const batch of batches) {
+    try {
+      const response = await askModel(correct.buildProofreadPrompt(batch.cues, terms))
+      results.push({ offset: batch.offset, cues: correct.applyCorrectionResponse(batch.cues, response) })
+    } catch {
+      results.push({ offset: batch.offset, cues: null })
+    }
+  }
+  return {
+    cues: correct.mergeCorrectedBatches(cues, results),
+    batches: batches.length,
+    failedBatches: results.filter((result) => !result.cues).length,
+  }
+}
