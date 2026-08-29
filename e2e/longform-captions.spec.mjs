@@ -76,3 +76,51 @@ test('롱폼 자막 탭: 대본이 없으면 음성으로 만들어 준다는 �
   await expect(tab.locator('.longform-checks')).toContainText('음성으로 대본 파일도 만들기')
   await expect(tab.locator('.longform-script')).toHaveAttribute('placeholder', /대본을 만들어 드립니다/)
 })
+
+test('롱폼 자막 탭: 다른 탭에 갔다 와도 입력이 남아 있다', async ({ page }) => {
+  await page.goto(baseUrl)
+  await page.getByRole('button', { name: '롱폼 자막' }).click()
+  const tab = page.locator('.longform-tab')
+
+  // 대본을 쓰고 옵션을 바꾼 뒤
+  await tab.locator('.longform-script').fill('테스트 대본입니다. 탭을 옮겨도 남아야 합니다.')
+  await tab.locator('.longform-burn').selectOption('mux')
+  await tab.locator('.longform-advanced summary').click()
+  await tab.locator('.longform-num').first().fill('20')
+
+  // 다른 탭에 갔다가 돌아오면
+  await page.getByRole('button', { name: '환경설정' }).click()
+  await expect(page.locator('.longform-tab')).toHaveCount(0)
+  await page.getByRole('button', { name: '롱폼 자막' }).click()
+
+  // 쓰던 값이 그대로 있어야 한다 — 몇 분씩 걸리는 작업이라 날아가면 치명적이다
+  await expect(page.locator('.longform-script')).toHaveValue('테스트 대본입니다. 탭을 옮겨도 남아야 합니다.')
+  await expect(page.locator('.longform-burn')).toHaveValue('mux')
+  await page.locator('.longform-advanced summary').click()
+  await expect(page.locator('.longform-num').first()).toHaveValue('20')
+})
+
+test('롱폼 자막 탭: 작업 중에 탭을 옮겼다 와도 진행 상태가 이어진다', async ({ page }) => {
+  await page.goto(baseUrl)
+  await page.getByRole('button', { name: '롱폼 자막' }).click()
+
+  // 실행 중인 상태를 만든다(서버 호출 없이 상태만 세팅)
+  await page.evaluate(async () => {
+    const module = await import('./longform-captions.js')
+    const { state } = module.renderLongformCaptionsTab(document.querySelector('#tabContent'), {})
+    state.mediaPath = 'D:/영상/강의.mp4'
+    state.mediaName = '강의.mp4'
+    state.busy = true
+    state.activeStep = 'correct'
+    state.status = '받아쓰는 중…'
+  })
+
+  await page.getByRole('button', { name: '환경설정' }).click()
+  await page.getByRole('button', { name: '롱폼 자막' }).click()
+
+  const tab = page.locator('.longform-tab')
+  await expect(tab.locator('.longform-drop')).toContainText('강의.mp4')
+  await expect(tab.locator('.longform-status')).toHaveText('받아쓰는 중…')
+  await expect(tab.locator('.longform-step.is-active')).toHaveText('대본 대조 보정')
+  await expect(tab.getByRole('button', { name: '만드는 중…' })).toBeDisabled()
+})
