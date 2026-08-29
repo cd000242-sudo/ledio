@@ -259,7 +259,9 @@ body[data-mode='manual'] .studio-grid {
   /* 미리보기를 가장 넓은 칸으로 — 편집 화면에서 가장 커야 할 것이 가장 컸어야 한다.
      예전에는 미리보기가 340~430px로 묶여 있고 편집 패널이 나머지를 다 먹었다. */
   grid-template-columns: minmax(150px, 190px) minmax(0, 1fr) minmax(300px, 360px);
-  grid-template-rows: minmax(0, 1fr) auto;
+  /* 타임라인이 아래 공간을 다 먹으면 미리보기가 218px로 쪼그라든다(실측).
+     위쪽(미리보기)에 최소 절반을 보장하고 타임라인은 최대 38%까지만 쓴다. */
+  grid-template-rows: minmax(0, 1fr) minmax(180px, 38%);
   grid-template-areas:
     'tabs preview workbench'
     'tabs automation automation';
@@ -308,8 +310,9 @@ body[data-mode='simple'] .studio-grid {
    화면을 스크롤해서 재생 버튼을 찾게 만들면 안 된다. */
 body[data-mode='manual'] .preview-deck {
   display: grid;
-  /* 영상이 가운데 칸을 넉넉히 갖고, 아래 조작 패널은 남는 만큼만 쓴다. */
-  grid-template-rows: auto minmax(220px, 1fr) auto;
+  /* 영상이 가운데 칸을 갖고, 아래 조작 패널은 상한 안에서만 쓴다.
+     패널 행을 auto로 두면 내용 높이만큼 다 가져가 영상이 220px에 고정된다(실측). */
+  grid-template-rows: auto minmax(220px, 1fr) minmax(0, 34%);
   overflow: hidden;
 }
 
@@ -332,8 +335,6 @@ body[data-mode='manual'] .phone-frame[data-ratio='16:9'] {
 /* 빠른 편집 패널은 남는 만큼만 쓰고, 넘치면 그 안에서만 스크롤한다. */
 body[data-mode='manual'] .quick-edit-panel {
   min-height: 0;
-  /* 조작 패널이 영상 자리를 빼앗지 않게 상한을 둔다. */
-  max-height: 40%;
   overflow: auto;
 }
 .timeline-deck {
@@ -3418,3 +3419,9 @@ body[data-mode='simple'] #workbenchToggleBtn {
 .erase-tab { display: flex; flex-direction: column; gap: 12px; max-width: 780px; }
 .erase-buttons { display: flex; gap: 8px; flex-wrap: wrap; }
 .erase-box { font-family: inherit; }
+
+/* 수동편집에서 타임라인은 배정된 칸 안에서만 스크롤한다(위 미리보기 자리를 빼앗지 않게). */
+body[data-mode='manual'] .timeline-deck {
+  max-height: none;
+  min-height: 0;
+}

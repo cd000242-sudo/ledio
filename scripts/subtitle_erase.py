@@ -18,9 +18,18 @@ import sys
 
 
 def parse_box(value: str):
-    parts = [int(float(p)) for p in value.split(",")]
+    """'x,y,w,h' 를 숫자 넷으로 읽는다. 형식이 틀리면 사람이 읽을 수 있게 알린다."""
+    try:
+        parts = [int(float(p)) for p in value.split(",")]
+    except ValueError:
+        raise ValueError(
+            "지울 영역을 이해하지 못했습니다: " + value + "\n"
+            "auto(자동 감지) 또는 'x,y,너비,높이' 형식으로 적어주세요. 예: 100,600,1080,120"
+        ) from None
     if len(parts) != 4:
-        raise ValueError("box는 x,y,w,h 형식이어야 합니다.")
+        raise ValueError("지울 영역은 x,y,너비,높이 네 개의 숫자여야 합니다. 예: 100,600,1080,120")
+    if parts[2] <= 0 or parts[3] <= 0:
+        raise ValueError("지울 영역의 너비와 높이는 0보다 커야 합니다.")
     return parts
 
 
@@ -205,7 +214,11 @@ def main() -> int:
     parser.add_argument("--start", type=float, default=0.0)
     parser.add_argument("--duration", type=float, default=0.0, help="0이면 끝까지")
     args = parser.parse_args()
-    return erase(args)
+    try:
+        return erase(args)
+    except Exception as error:  # 사용자에게는 파이썬 추적 대신 한 줄 이유를 보여준다.
+        print(f"자막 지우기 실패: {error}", file=sys.stderr)
+        return 1
 
 
 if __name__ == "__main__":

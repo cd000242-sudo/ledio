@@ -102,16 +102,3 @@ function totalClipSeconds(clips: unknown[]): number {
   }
   return Math.round(total) || 0
 }
-
-/** 새 편집 프로젝트의 최소 문서 — 앱이 영상 파일만 받고 만들 때 쓴다. */
-export function newEditProject(projectName: string, clipFiles: string[], durationsSec: number[] = []): object {
-  return {
-    kind: 'edit',
-    projectName,
-    clips: clipFiles.map((file, index) => ({
-      file,
-      start: 0,
-      end: durationsSec[index] && durationsSec[index] > 0 ? durationsSec[index] : 60,
-    })),
-  }
-}

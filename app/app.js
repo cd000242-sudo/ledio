@@ -791,7 +791,51 @@ function yamlNumber(value, fallback) {
   return Number.isFinite(parsed) ? String(parsed) : String(fallback);
 }
 
+/**
+ * 상품 정보를 안 채웠으면 **편집 전용 프로젝트**로 본다.
+ * 영상만 자르려는 사람에게 상품명·가격대·제휴링크를 요구하지 않기 위한 표시다.
+ * (kind: edit이면 서버가 빠진 항목을 기본값으로 채워 검증한다)
+ */
+function draftProjectKind() {
+  const product = state.draft.product ?? {};
+  const filled = [product.name, product.category, product.affiliateUrl].some((value) => clean(value));
+  return filled ? 'shopping' : 'edit';
+}
+
+/** 편집 전용 프로젝트 YAML — 영상과 화면 설정만 적는다. */
+function toEditProjectYaml() {
+  const style = state.draft.style ?? {};
+  const lines = [
+    'kind: edit',
+    `projectName: ${yamlString(clean(state.draft.projectName) || 'my-edit')}`,
+    '',
+    'style:',
+    `  ratio: ${yamlString(clean(style.ratio) || '9:16')}`,
+  ];
+  if (clean(style.captionStyle)) lines.push(`  captionStyle: ${yamlString(clean(style.captionStyle))}`);
+  if (Number.isFinite(Number(style.bgmVolume))) lines.push(`  bgmVolume: ${yamlNumber(style.bgmVolume, 0.18)}`);
+
+  lines.push('', 'clips:');
+  for (const clip of state.draft.clips ?? []) {
+    lines.push(`  - file: ${yamlString(clip.file)}`);
+    lines.push(`    start: ${yamlNumber(clip.start, 0)}`);
+    lines.push(`    end: ${yamlNumber(clip.end, 0)}`);
+    if (Number.isFinite(Number(clip.speed)) && Number(clip.speed) !== 1) {
+      lines.push(`    speed: ${yamlNumber(clip.speed, 1)}`);
+    }
+  }
+  if (clean(state.draft.bgm?.file)) {
+    lines.push('', 'bgm:', `  file: ${yamlString(clean(state.draft.bgm.file))}`);
+  }
+  if (clean(state.draft.narration?.file)) {
+    lines.push('', 'narration:', `  file: ${yamlString(clean(state.draft.narration.file))}`);
+  }
+  return `${lines.join('\n')}\n`;
+}
+
 function toProjectYaml() {
+  const kind = draftProjectKind();
+  if (kind === 'edit') return toEditProjectYaml();
   const lines = [
     `projectName: ${yamlString(clean(state.draft.projectName))}`,
     '',

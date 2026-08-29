@@ -71,13 +71,23 @@ export async function eraseSubtitles(mediaPath, deps, options = {}) {
     durationSec: preview ? (options.durationSec ?? 3) : (options.durationSec ?? 0),
   })
 
+  const startedAt = Date.now()
   const result = await deps.runPython(args)
   if (!result.ok) return { ok: false, error: result.error ?? '자막 지우기에 실패했습니다.' }
+
+  const elapsedSec = Math.round((Date.now() - startedAt) / 1000)
+  // 미리보기에 걸린 시간으로 전체 예상 시간을 알려준다 — 사용자가 기다릴지 말지 정할 수 있게.
+  const estimateFullSec =
+    preview && options.mediaSeconds
+      ? estimateSeconds(options.mediaSeconds, options.mode ?? 'background')
+      : null
 
   return {
     ok: true,
     outPath: paths.out,
     preview,
+    elapsedSec,
+    estimateFullSec,
     detectedBox: parseDetectedBox(result.stderr),
     mode: options.mode ?? 'background',
   }

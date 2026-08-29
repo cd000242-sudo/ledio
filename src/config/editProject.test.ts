@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { newEditProject, projectKind, resolutionFor, withEditDefaults } from './editProject.js'
+import { projectKind, resolutionFor, withEditDefaults } from './editProject.js'
 import { projectSchema } from './schema.js'
 
 describe('프로젝트 종류 판별', () => {
@@ -71,21 +71,5 @@ describe('편집 프로젝트 기본값 채우기', () => {
   it('쇼핑 프로젝트는 손대지 않는다', () => {
     const shopping = { kind: 'shopping', projectName: 'x', product: { name: '상품' }, clips: [] }
     expect(withEditDefaults(shopping)).toBe(shopping)
-  })
-})
-
-describe('새 편집 프로젝트 문서', () => {
-  it('영상 경로만 받아 유효한 문서를 만든다', () => {
-    const doc = newEditProject('내 편집', ['clips/a.mp4', 'clips/b.mp4'], [12.5, 8])
-    const result = projectSchema.safeParse(withEditDefaults(doc))
-    expect(result.success).toBe(true)
-    const parsed = result.success ? result.data : null
-    expect(parsed?.clips).toHaveLength(2)
-    expect(parsed?.clips[0]?.end).toBe(12.5)
-  })
-
-  it('길이를 모르면 임시 길이로 채운다(나중에 실제 길이로 갱신)', () => {
-    const doc = newEditProject('내 편집', ['clips/a.mp4']) as { clips: { end: number }[] }
-    expect(doc.clips[0]?.end).toBeGreaterThan(0)
   })
 })

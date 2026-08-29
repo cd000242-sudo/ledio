@@ -1473,6 +1473,7 @@ async function handleSubtitleErase(req, res, workspaceRoot) {
       box: body.box ? String(body.box) : 'auto',
       startSec: Number(body.startSec) || 0,
       durationSec: Number(body.durationSec) || 0,
+      mediaSeconds: Number(body.mediaSeconds) || 0,
     },
   )
   sendJson(res, 200, result)
@@ -1531,8 +1532,17 @@ async function handleAutoEditApply(req, res, workspaceRoot, commandRunner) {
   const mediaPath = String(body.mediaPath ?? '').trim()
   const cached = autoEditCache.get(mediaPath)
   const totalMs = Number(body.totalMs) || cached?.totalMs || 0
-  if (!mediaPath || !existsSync(mediaPath) || totalMs <= 0) {
-    sendJson(res, 400, { ok: false, error: '먼저 분석을 실행하세요.' })
+  // 원인마다 다른 안내를 준다 — 셋을 한 메시지로 뭉치면 사용자가 뭘 고쳐야 할지 모른다.
+  if (!mediaPath || !existsSync(mediaPath)) {
+    sendJson(res, 400, { ok: false, error: `영상 파일을 찾을 수 없습니다: ${mediaPath || '(경로 없음)'}` })
+    return
+  }
+  if (totalMs <= 0) {
+    sendJson(res, 400, { ok: false, error: '먼저 "자를 곳 찾기"를 실행하세요.' })
+    return
+  }
+  if (!Array.isArray(body.selected) || body.selected.length === 0) {
+    sendJson(res, 400, { ok: false, error: '자를 구간을 하나도 고르지 않았습니다.' })
     return
   }
 
