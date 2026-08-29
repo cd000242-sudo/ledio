@@ -1,7 +1,7 @@
 # 쇼츠팩토리 프로젝트 매니페스트
 
 > 이 저장소의 **단일 진실 문서**. 새 세션·새 사람은 이것부터 읽는다.
-> 마지막 갱신: 2026-08-29 (v0.3.0 배포)
+> 마지막 갱신: 2026-08-29 (v0.4.0 배포)
 >
 > 규칙: 기능을 완성하거나 방향을 바꾸면 **이 문서를 먼저 고친다**. 세부 설계는 아래 "문서 지도"의 개별 문서에 두고, 여기에는 상태와 결정만 남긴다.
 
@@ -37,7 +37,7 @@
 | 소스 짜집기(AI 문장↔장면 매칭) | ✅ 완성 | `handleSourceRemix`, `src/…/source-remix` |
 | 무음 컷·타임라인 파형 | ✅ 완성 | `handleSilenceAnalyze`, `app/app.js` |
 | 자동 업데이트(GitHub 릴리즈) | ✅ 완성 | `electron/main.mjs` |
-| **롱폼 자막 원클릭(받아쓰기 → 보정 → 자막 → 대본 → 영상에 자막 넣기)** | ✅ 완성 | `app/longform-captions.js`, `src/captions/whisperx.ts`, `src/subtitles/` |
+| **롱폼 자막 원클릭(받아쓰기 → 보정 → 자막 → 대본 → 영상에 자막 넣기)** | ✅ 완성·배포 v0.4.0 | `app/longform-captions.js`, `src/captions/whisperx.ts`, `src/subtitles/` |
 | **앱 조종 비서(클로드코드 에이전트)** | ✅ 완성·배포 v0.3.0 | `scripts/mcp/`, `scripts/server/assistant-runtime.mjs`, `app/assistant.js` |
 | 낭독 속도 개선 | 📋 플랜만 | `docs/tts-speed-plan.md` |
 | 블로그 → 영상 파이프라인 | 📋 플랜만 | `docs/blog-to-video-plan.md` |
@@ -118,6 +118,6 @@ npm run verify    # 전체 게이트(빌드·샘플·렌더 스모크·릴리즈
 ```
 
 **릴리즈**: 버전 올리기 → `npm run release:installer` → **win-unpacked 실행파일로 실제 동작 확인** → 태그 푸시 → `gh release create`에 `.exe` + `.blockmap` + `latest.yml` 세 개 모두 업로드. 자동 업데이트가 `latest.yml`을 본다.
-최신: **v0.3.0** (2026-08-29).
+최신: **v0.4.0** (2026-08-29) — 롱폼 자막.
 
 **주의**: 테스트가 무겁게 겹치면(예: playwright 직후 vitest) 낭독·자막 테스트가 5초 제한에 걸려 흔들린다. 부하 없는 상태에서 다시 돌려 확인할 것.
