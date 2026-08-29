@@ -32,11 +32,13 @@
       "app/**/*",
       "dist/**/*",
       "scripts/**/*",
+      "build/icon.*",
       "!scripts/__pycache__/**",
       "!scripts/**/*.test.mjs",
       "package.json"
     ],
     "win": {
+      "icon": "build/icon.ico",
       "target": [
         {
           "target": "nsis",
@@ -50,6 +52,8 @@
       "oneClick": true,
       "perMachine": false,
       "shortcutName": "쇼츠팩토리 스튜디오",
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
       "artifactName": "shorts-factory-setup-${version}.${ext}"
     }
   },

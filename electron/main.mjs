@@ -84,6 +84,7 @@ async function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1440,
     height: 920,
+    icon: join(workspaceRoot, 'build', 'icon.ico'),
     minWidth: 1120,
     minHeight: 720,
     title: '쇼츠팩토리 스튜디오',
