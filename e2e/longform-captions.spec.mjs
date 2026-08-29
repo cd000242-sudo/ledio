@@ -52,7 +52,7 @@ test('롱폼 자막 탭: 세부 설정에 모델·엔진·길이 기준이 있�
   await expect(tab.locator('.longform-options:not(.longform-style-grid)')).toBeVisible()
 
   await expect(tab.locator('.longform-model option')).toHaveCount(2)
-  await expect(tab.locator('.longform-engine option')).toHaveCount(6)
+  await expect(tab.locator('.longform-engine option')).toHaveCount(7)
 
   // 노션 규칙의 길이 기준이 기본값이다
   await expect(tab.locator('.longform-num:not(.longform-style-num)').first()).toHaveValue('18')

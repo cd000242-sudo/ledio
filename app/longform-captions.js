@@ -25,6 +25,7 @@ const ENGINE_OPTIONS = [
   { value: '', label: '환경설정 기본 엔진' },
   { value: 'agent-claude', label: '클로드코드 (구독)' },
   { value: 'agent-codex', label: 'Codex (구독)' },
+  { value: 'agent-gemini', label: 'Gemini (구독)' },
   { value: 'api-claude', label: 'Claude API 키' },
   { value: 'api-gpt', label: 'GPT API 키' },
   { value: 'api-gemini', label: 'Gemini API 키' },

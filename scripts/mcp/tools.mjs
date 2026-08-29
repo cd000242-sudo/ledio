@@ -17,7 +17,7 @@ function summarize(lines) {
 
 function scriptMethodArg(defaults) {
   return z
-    .enum(['api-gpt', 'api-gemini', 'api-claude', 'agent-claude', 'agent-codex'])
+    .enum(['api-gpt', 'api-gemini', 'api-claude', 'agent-claude', 'agent-codex', 'agent-gemini'])
     .default(defaults.method ?? 'agent-claude')
     .describe('생성 엔진. 지정하지 않으면 사용자가 환경설정에서 고른 방식을 쓴다.')
 }

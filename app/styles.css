@@ -3413,3 +3413,8 @@ body[data-mode='simple'] #workbenchToggleBtn {
 }
 .auto-cut-why.reason-duplicate { border-color: var(--copper); color: var(--copper); }
 .auto-cut-why.reason-silence { border-color: var(--blue); color: var(--blue); }
+
+/* ── 자막 지우기 탭 ── */
+.erase-tab { display: flex; flex-direction: column; gap: 12px; max-width: 780px; }
+.erase-buttons { display: flex; gap: 8px; flex-wrap: wrap; }
+.erase-box { font-family: inherit; }

@@ -27,6 +27,7 @@ import { getSettings, renderSettingsTab } from './settings.js';
 import { mountAssistant } from './assistant.js';
 import { renderLongformCaptionsTab } from './longform-captions.js';
 import { renderAutoEditTab } from './auto-edit.js';
+import { renderSubtitleEraseTab } from './subtitle-erase.js';
 import {
   clean,
   formatTags,
@@ -248,6 +249,7 @@ const tabs = [
   { id: 'manual', label: '수동편집하기', title: '수동 편집', eyebrow: '타임라인과 세부 도구' },
   { id: 'autoedit', label: '자동 편집', title: '자동 편집', eyebrow: '무음·군더더기·중복 자동 정리' },
   { id: 'captions', label: '롱폼 자막', title: '롱폼 자막', eyebrow: '영상·음성 → SRT 두 개' },
+  { id: 'erase', label: '자막 지우기', title: '자막 지우기', eyebrow: '영상에 박힌 자막 제거' },
   { id: 'settings', label: '환경설정', title: '환경설정', eyebrow: '기본값과 도구 상태' },
 ];
 
@@ -1359,7 +1361,24 @@ function renderTabContent() {
   if (state.selectedTab === 'manual') renderManualTab(content);
   if (state.selectedTab === 'autoedit') renderAutoEdit(content);
   if (state.selectedTab === 'captions') renderLongformCaptions(content);
+  if (state.selectedTab === 'erase') renderSubtitleErase(content);
   if (state.selectedTab === 'settings') renderSettingsTab(content);
+}
+
+/** 자막 지우기 탭. */
+function renderSubtitleErase(content) {
+  const desktop = window.shortsFactoryDesktop;
+  renderSubtitleEraseTab(content, {
+    pickMedia: async () => {
+      if (!desktop?.selectFile) {
+        window.alert('파일 선택은 데스크톱 앱에서만 됩니다.');
+        return null;
+      }
+      const picked = await desktop.selectFile({ kind: 'media' });
+      return picked?.path ?? null;
+    },
+    pathOf: (file) => (file && typeof file.path === 'string' ? file.path : null),
+  });
 }
 
 /** 자동 편집 탭 — 파일 선택은 롱폼 자막과 같은 방식을 쓴다. */

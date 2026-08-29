@@ -22,7 +22,7 @@ const byName = (tools, name) => tools.find((tool) => tool.name === name)
 describe('편집·진단 도구', () => {
   it('이름·설명·risk를 갖추고 이름이 겹치지 않는다', () => {
     const tools = createEditTools({ api: fakeApi() })
-    expect(tools.length).toBe(8)
+    expect(tools.length).toBe(11)
     for (const tool of tools) {
       expect(tool.name).toMatch(/^[a-z_]+$/)
       expect(['read', 'write', 'run']).toContain(tool.risk)
@@ -36,6 +36,11 @@ describe('편집·진단 도구', () => {
     expect(byName(tools, 'source_remix').approval).toBe(true)
     // 원클릭 자막은 파일을 새로 만들고 몇 분을 태우므로 반드시 물어본다
     expect(byName(tools, 'longform_captions').approval).toBe(true)
+    // 자르기·지우기는 되돌릴 수 없다 — 반드시 확인을 받는다
+    expect(byName(tools, 'auto_edit_apply').approval).toBe(true)
+    expect(byName(tools, 'erase_subtitles').approval).toBe(true)
+    // 분석만 하는 것은 승인이 필요 없다
+    expect(byName(tools, 'auto_edit_analyze').approval).toBeUndefined()
     expect(byName(tools, 'check_environment').approval).toBeUndefined()
   })
 

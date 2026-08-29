@@ -3,6 +3,7 @@ import { createReadStream, existsSync } from 'node:fs'
 import { createAssistantRuntime } from './server/assistant-runtime.mjs'
 import { createInstaller, isEngineInstalled } from './server/stt-engine.mjs'
 import { analyzeForAutoEdit, applySelectedCuts } from './server/auto-edit.mjs'
+import { eraseSubtitles } from './server/subtitle-erase.mjs'
 import {
   buildBurnSrt,
   proofreadCues,
@@ -52,7 +53,11 @@ import { mkdir, readFile, stat, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import { delimiter, dirname, extname, isAbsolute, join, normalize, resolve, sep } from 'node:path'
 import { homedir } from 'node:os'
-import { spawn } from 'node:child_process'
+import { execFile, spawn } from 'node:child_process'
+import { promisify } from 'node:util'
+
+/** 파이썬 스크립트를 부를 때 쓰는 프로미스 버전 execFile. */
+const execFileAsync = promisify(execFile)
 import YAML from 'yaml'
 
 const mimeTypes = new Map([
@@ -1183,6 +1188,12 @@ async function generateWithMethod(method, apiKey, prompt, useResearch = false, f
     if (fastModel) args.push('--model', 'haiku')
     return runAgentCommand(binary, args, 420000, prompt)
   }
+  if (method === 'agent-gemini') {
+    // Antigravity는 헤드리스 CLI가 없어 앱이 부를 수 없다 — 같은 구글 계열인 Gemini CLI를 쓴다.
+    const binary = findAgentBinary('gemini', 'GEMINI_BIN')
+    if (!binary) throw new Error('Gemini CLI를 찾을 수 없습니다. 설치: npm install -g @google/gemini-cli')
+    return runAgentCommand(binary, ['-p', prompt], 420000)
+  }
   if (method === 'agent-codex') {
     const binary = findAgentBinary('codex', 'CODEX_BIN')
     if (!binary) throw new Error('Codex CLI를 찾을 수 없습니다. 설치: npm install -g @openai/codex')
@@ -1304,6 +1315,10 @@ async function handleCoupangAnalyze(req, res, workspaceRoot) {
 
 /** 에이전트 로그인 여부 — CLI가 저장하는 자격증명 파일 존재로 판정한다. */
 function agentLoggedIn(agent) {
+  if (agent === 'gemini') {
+    // Gemini CLI는 홈 폴더에 설정을 남긴다.
+    return existsSync(join(homedir(), '.gemini'))
+  }
   if (agent === 'claude') {
     if (process.env.CLAUDE_CODE_OAUTH_TOKEN) return true
     return existsSync(join(homedir(), '.claude', '.credentials.json'))
@@ -1418,6 +1433,49 @@ async function handleAssistantApprove(req, res) {
   const approved = body.approved === true
   const settled = settleApproval(id, approved, approved ? null : '사용자가 취소했습니다.')
   sendJson(res, settled ? 200 : 404, { ok: settled, ...(settled ? {} : { error: '이미 끝난 승인 요청입니다.' }) })
+}
+
+// ── 자막 지우기: 영상에 박힌 자막을 배경으로 메운다 ──
+
+async function handleSubtitleErase(req, res, workspaceRoot) {
+  const body = await readJsonBody(req)
+  const mediaPath = String(body.mediaPath ?? '').trim()
+  if (!mediaPath || !existsSync(mediaPath)) {
+    sendJson(res, 400, { ok: false, error: '영상 파일을 찾을 수 없습니다.' })
+    return
+  }
+
+  const python = whisperxPython(workspaceRoot)
+  if (!python) {
+    sendJson(res, 200, {
+      ok: false,
+      error: '자막 지우기 엔진이 없습니다. 롱폼 자막 탭에서 "엔진 설치"를 먼저 실행하세요.',
+    })
+    return
+  }
+
+  const runPython = async (args) => {
+    try {
+      const result = await execFileAsync(python, args, { timeout: 1000 * 60 * 120, maxBuffer: 32 * 1024 * 1024 })
+      return { ok: true, stderr: result.stderr ?? '' }
+    } catch (error) {
+      const detail = String(error?.stderr ?? error?.message ?? '').trim().split('\n').slice(-4).join('\n')
+      return { ok: false, error: detail || '자막 지우기에 실패했습니다.' }
+    }
+  }
+
+  const result = await eraseSubtitles(
+    mediaPath,
+    { runPython, scriptPath: join(workspaceRoot, 'scripts', 'subtitle_erase.py') },
+    {
+      preview: body.preview === true,
+      mode: String(body.mode ?? 'background'),
+      box: body.box ? String(body.box) : 'auto',
+      startSec: Number(body.startSec) || 0,
+      durationSec: Number(body.durationSec) || 0,
+    },
+  )
+  sendJson(res, 200, result)
 }
 
 // ── 자동 편집: 받아쓰기 → 자를 후보 → (확인) → 컷 적용 ──
@@ -1750,6 +1808,10 @@ async function handleAgentsStatus(res) {
       codex: {
         installed: Boolean(findAgentBinary('codex', 'CODEX_BIN')),
         loggedIn: agentLoggedIn('codex'),
+      },
+      gemini: {
+        installed: Boolean(findAgentBinary('gemini', 'GEMINI_BIN')),
+        loggedIn: agentLoggedIn('gemini'),
       },
     },
   })
@@ -3554,6 +3616,11 @@ export function createShortsFactoryServer(options = {}) {
 
       if (pathname.startsWith('/api/scripts/') && req.method === 'DELETE') {
         await handleScriptDelete(pathname, res, workspaceRoot)
+        return
+      }
+
+      if (pathname === '/api/subtitle-erase' && req.method === 'POST') {
+        await handleSubtitleErase(req, res, workspaceRoot)
         return
       }
 

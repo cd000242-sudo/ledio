@@ -191,6 +191,83 @@ export function createEditTools({ api }) {
       },
     },
     {
+      name: 'auto_edit_analyze',
+      title: '자동 편집 — 자를 곳 찾기',
+      description:
+        '영상에서 말 없는 구간·군더더기·같은 말 반복을 찾아 목록으로 돌려준다. 실제로 자르지는 않는다. ' +
+        '사용자가 "이 영상 다듬어줘"라고 하면 먼저 이걸 돌리고 목록을 보여준 뒤 확인을 받는다.',
+      risk: 'run',
+      schema: {
+        mediaPath: z.string().min(1).describe('영상 파일 전체 경로'),
+        strength: z.enum(['light', 'normal', 'strong']).default('normal').describe('다듬기 강도'),
+      },
+      async run(args) {
+        const data = await api.post('/api/auto-edit/analyze', {
+          mediaPath: args.mediaPath,
+          strength: args.strength,
+        })
+        if (!data.ok) return { text: failureText(data, '분석 실패'), data }
+        const lines = [`자를 후보 ${data.candidates.length}곳을 찾았습니다.`]
+        for (const item of data.candidates.slice(0, 20)) {
+          lines.push(`- ${item.time} · ${item.label}${item.text ? ` · "${item.text.slice(0, 30)}"` : ''}`)
+        }
+        return { text: lines.join('\n'), data }
+      },
+    },
+    {
+      name: 'auto_edit_apply',
+      title: '자동 편집 — 고른 구간 자르기',
+      description:
+        'auto_edit_analyze가 준 구간 중 사용자가 고른 것만 잘라 편집본을 만든다. 되돌릴 수 없으니 확인 후 호출한다.',
+      risk: 'run',
+      approval: true,
+      schema: {
+        mediaPath: z.string().min(1),
+        totalMs: z.number().int().min(1).describe('원본 전체 길이(밀리초) — 분석 결과의 totalMs'),
+        selected: z
+          .array(z.object({ startMs: z.number().int().min(0), endMs: z.number().int().min(0) }))
+          .min(1)
+          .describe('자를 구간 목록'),
+      },
+      async run(args) {
+        const data = await api.post('/api/auto-edit/apply', {
+          mediaPath: args.mediaPath,
+          totalMs: args.totalMs,
+          selected: args.selected,
+        })
+        if (!data.ok) return { text: failureText(data, '컷 적용 실패'), data }
+        return { text: `편집본을 만들었습니다: ${data.outPath} (${Math.round(data.removedMs / 1000)}초 잘라냄)`, data }
+      },
+    },
+    {
+      name: 'erase_subtitles',
+      title: '영상에 박힌 자막 지우기',
+      description:
+        '영상 화면에 구워진 자막을 배경으로 메워 지운다. 먼저 preview=true로 3초만 해보고 결과를 확인한 뒤 전체를 돌린다. ' +
+        '쇼츠·롱폼 모두 된다.',
+      risk: 'run',
+      approval: true,
+      schema: {
+        mediaPath: z.string().min(1),
+        mode: z.enum(['background', 'fast', 'blur']).default('background'),
+        box: z.string().default('auto').describe('auto(자동 감지) 또는 x,y,너비,높이'),
+        preview: z.boolean().default(true).describe('true면 앞 3초만 처리한다'),
+      },
+      async run(args) {
+        const data = await api.post('/api/subtitle-erase', {
+          mediaPath: args.mediaPath,
+          mode: args.mode,
+          box: args.box,
+          preview: args.preview,
+          durationSec: args.preview ? 3 : 0,
+        })
+        if (!data.ok) return { text: failureText(data, '자막 지우기 실패'), data }
+        const found = data.detectedBox
+        const where = found ? ` (찾은 영역: ${found.w}×${found.h})` : ''
+        return { text: `${args.preview ? '미리보기' : '전체'} 완료: ${data.outPath}${where}`, data }
+      },
+    },
+    {
       name: 'source_remix',
       title: '소스 짜집기',
       description:
