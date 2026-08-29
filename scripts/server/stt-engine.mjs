@@ -28,6 +28,13 @@ export function installSteps(workspaceRoot, { cuda = true } = {}) {
       command: python,
       args: ['-m', 'pip', 'install', '--upgrade', 'whisperx'],
     },
+    {
+      // 자막 지우기가 쓰는 영상 처리 라이브러리.
+      id: 'opencv',
+      label: '영상 처리 라이브러리 설치',
+      command: python,
+      args: ['-m', 'pip', 'install', '--upgrade', 'opencv-python-headless'],
+    },
   ]
   if (cuda) {
     steps.push({

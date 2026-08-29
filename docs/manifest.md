@@ -1,7 +1,7 @@
 # 쇼츠팩토리 프로젝트 매니페스트
 
 > 이 저장소의 **단일 진실 문서**. 새 세션·새 사람은 이것부터 읽는다.
-> 마지막 갱신: 2026-08-29 (v0.4.0 배포)
+> 마지막 갱신: 2026-08-29 (v0.5.0 배포)
 >
 > 규칙: 기능을 완성하거나 방향을 바꾸면 **이 문서를 먼저 고친다**. 세부 설계는 아래 "문서 지도"의 개별 문서에 두고, 여기에는 상태와 결정만 남긴다.
 
@@ -37,7 +37,10 @@
 | 소스 짜집기(AI 문장↔장면 매칭) | ✅ 완성 | `handleSourceRemix`, `src/…/source-remix` |
 | 무음 컷·타임라인 파형 | ✅ 완성 | `handleSilenceAnalyze`, `app/app.js` |
 | 자동 업데이트(GitHub 릴리즈) | ✅ 완성 | `electron/main.mjs` |
-| **롱폼 자막 원클릭(받아쓰기 → 보정 → 자막 → 대본 → 영상에 자막 넣기)** | ✅ 완성·배포 v0.4.0 | `app/longform-captions.js`, `src/captions/whisperx.ts`, `src/subtitles/` |
+| **롱폼 자막 원클릭(받아쓰기 → 보정 → 자막 → 대본 → 영상에 자막 넣기)** | ✅ 완성·배포 v0.4.0 |
+| **자동 편집(무음·군더더기·중복 찾아 확인 후 컷)** | ✅ 완성·배포 v0.5.0 | `src/edit/autoCut.ts`, `app/auto-edit.js` |
+| **자막 지우기(하드섭 제거, 쇼츠·롱폼)** | ✅ 완성·배포 v0.5.0 | `scripts/subtitle_erase.py`, `app/subtitle-erase.js` |
+| **편집 전용 프로젝트(영상만 있으면 열림)** | ✅ 완성 | `src/config/editProject.ts` | `app/longform-captions.js`, `src/captions/whisperx.ts`, `src/subtitles/` |
 | **앱 조종 비서(클로드코드 에이전트)** | ✅ 완성·배포 v0.3.0 | `scripts/mcp/`, `scripts/server/assistant-runtime.mjs`, `app/assistant.js` |
 | 낭독 속도 개선 | 📋 플랜만 | `docs/tts-speed-plan.md` |
 | 블로그 → 영상 파이프라인 | 📋 플랜만 | `docs/blog-to-video-plan.md` |
@@ -54,6 +57,9 @@
 
 | 날짜 | 결정 | 이유 |
 |---|---|---|
+| 2026-08-29 | 자동 편집은 **자동으로 자르지 않는다** — 후보와 이유를 보여주고 체크된 것만 자른다 | 자동 편집 도구가 욕먹는 지점이 "말한 걸 멋대로 지웠다"이다 |
+| 2026-08-29 | 자막 지우기 배경 추정은 분위수 후보 중 주변 배경색과 가장 닮은 것을 고르고 잔여 글자는 인페인트로 메운다 | 중앙값만 쓰면 잔상이, 어두운 분위수만 쓰면 테두리가 남는다(둘 다 실측) |
+| 2026-08-29 | Antigravity 대신 Gemini CLI를 붙였다 | Antigravity는 IDE만 있고 헤드리스 CLI가 없어 앱이 부를 수 없다 |
 | 2026-08-29 | STT 전에 ffmpeg로 16kHz 모노 wav를 먼저 뽑는다 | 영상 컨테이너를 직접 물리면 Node가 띄운 프로세스에서 즉사한다(실측). 디코딩도 한 번만 하게 된다 |
 | 2026-08-29 | 자막은 기본으로 화면에 태워넣는다(mux는 선택) | 쇼츠·릴스는 플레이어가 자막을 켜주지 않는다 |
 | 2026-08-29 | WhisperX는 `.venv-stt`에 격리 설치(TTS venv와 분리) | torch 버전이 충돌하면 낭독이 깨진다. CUDA 빌드를 따로 넣어야 GPU를 쓴다(pip 기본은 CPU 빌드) |
@@ -118,6 +124,6 @@ npm run verify    # 전체 게이트(빌드·샘플·렌더 스모크·릴리즈
 ```
 
 **릴리즈**: 버전 올리기 → `npm run release:installer` → **win-unpacked 실행파일로 실제 동작 확인** → 태그 푸시 → `gh release create`에 `.exe` + `.blockmap` + `latest.yml` 세 개 모두 업로드. 자동 업데이트가 `latest.yml`을 본다.
-최신: **v0.4.0** (2026-08-29) — 롱폼 자막.
+최신: **v0.5.0** (2026-08-29) — 자동 편집·자막 지우기.
 
 **주의**: 테스트가 무겁게 겹치면(예: playwright 직후 vitest) 낭독·자막 테스트가 5초 제한에 걸려 흔들린다. 부하 없는 상태에서 다시 돌려 확인할 것.
