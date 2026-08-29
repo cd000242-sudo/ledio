@@ -5,6 +5,7 @@ import { logger } from '../../utils/logger.js'
 
 export interface LongformSttOptions {
   model?: string
+  initialPrompt?: string
   language?: string
   computeType?: string
   outDir?: string
@@ -27,6 +28,7 @@ export async function runLongformStt(mediaPath: string, options: LongformSttOpti
       model: options.model,
       language: options.language,
       computeType: options.computeType,
+      initialPrompt: options.initialPrompt,
     })
 
     if (options.json) {

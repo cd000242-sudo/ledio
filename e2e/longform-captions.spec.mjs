@@ -19,7 +19,7 @@ test.afterAll(async () => {
   if (server) await new Promise((resolveClose) => server.close(resolveClose))
 })
 
-test('롱폼 자막 탭: 입력 전에는 실행 버튼이 잠겨 있다', async ({ page }) => {
+test('롱폼 자막 탭: 파일 넣기 전에는 실행이 잠겨 있다', async ({ page }) => {
   await page.goto(baseUrl)
   await page.getByRole('button', { name: '롱폼 자막' }).click()
 
@@ -27,24 +27,34 @@ test('롱폼 자막 탭: 입력 전에는 실행 버튼이 잠겨 있다', async
   await expect(tab).toBeVisible()
   await expect(tab).toContainText('컷 편집이 끝난 영상이나 음성')
 
-  // 파일을 고르기 전에는 실행할 수 없다
+  // 드롭존이 보이고, 파일을 고르기 전에는 실행할 수 없다
+  await expect(tab.locator('.longform-drop')).toContainText('끌어다 놓으세요')
   await expect(tab.getByRole('button', { name: '자막 만들기' })).toBeDisabled()
-  await expect(tab.locator('.longform-path')).toHaveText('선택된 파일 없음')
 
-  // 대본은 선택 사항이라는 안내가 보인다
-  await expect(tab.locator('.longform-script')).toHaveAttribute('placeholder', /비워두셔도/)
+  // 진행 단계는 실행 전에는 숨어 있다
+  await expect(tab.locator('.longform-steps')).toBeHidden()
 
-  // 노션 규칙의 길이 기준이 기본값으로 들어가 있다
-  const numbers = tab.locator('.longform-num')
-  await expect(numbers.first()).toHaveValue('18')
-  await expect(numbers.last()).toHaveValue('44')
+  // 대본은 선택 사항이고, 정확도에 도움이 된다고 안내한다
+  await expect(tab.locator('.longform-script')).toHaveAttribute('placeholder', /없어도 됩니다/)
 })
 
-test('롱폼 자막 탭: 보정 엔진을 고를 수 있다', async ({ page }) => {
+test('롱폼 자막 탭: 세부 설정에 모델·엔진·길이 기준이 있다', async ({ page }) => {
   await page.goto(baseUrl)
   await page.getByRole('button', { name: '롱폼 자막' }).click()
-  const engine = page.locator('.longform-engine')
-  await expect(engine.locator('option')).toHaveCount(6)
-  await engine.selectOption('api-claude')
-  await expect(engine).toHaveValue('api-claude')
+  const tab = page.locator('.longform-tab')
+
+  // 세부 설정은 접혀 있다 — 평소에는 파일만 넣으면 된다
+  await expect(tab.locator('.longform-options')).toBeHidden()
+  await tab.locator('.longform-advanced summary').click()
+  await expect(tab.locator('.longform-options')).toBeVisible()
+
+  await expect(tab.locator('.longform-model option')).toHaveCount(2)
+  await expect(tab.locator('.longform-engine option')).toHaveCount(6)
+
+  // 노션 규칙의 길이 기준이 기본값이다
+  await expect(tab.locator('.longform-num').first()).toHaveValue('18')
+  await expect(tab.locator('.longform-num').last()).toHaveValue('44')
+
+  await tab.locator('.longform-engine').selectOption('api-claude')
+  await expect(tab.locator('.longform-engine')).toHaveValue('api-claude')
 })

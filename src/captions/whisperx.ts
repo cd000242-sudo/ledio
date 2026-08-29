@@ -21,8 +21,18 @@ export interface WhisperxOptions {
   computeType?: string
   device?: string
   alignDevice?: string
+  batchSize?: number
+  /** 대본 앞부분 — STT에 힌트로 준다(고유명사·숫자 정확도). */
+  initialPrompt?: string
   pythonBin?: string
   scriptPath?: string
+}
+
+/** faster-whisper의 initial_prompt는 길면 잘린다 — 앞부분만 힌트로 준다. */
+export const INITIAL_PROMPT_LIMIT = 400
+
+export function buildInitialPrompt(script?: string): string {
+  return String(script ?? '').replace(/\s+/g, ' ').trim().slice(0, INITIAL_PROMPT_LIMIT)
 }
 
 /** STT 전용 venv의 파이썬을 찾는다. 없으면 환경변수·시스템 파이썬 순서로 물러선다. */
@@ -69,32 +79,50 @@ export function torchLibDir(pythonPath: string): string {
     : join(venvRoot, 'lib', 'site-packages', 'torch', 'lib')
 }
 
-export interface WhisperxArgOptions extends WhisperxOptions {
+export interface PhaseArgOptions extends WhisperxOptions {
   scriptPath: string
+  segmentsJson: string
   outJson: string
 }
 
-/**
- * 전용 실행기(scripts/whisperx_stt.py) 인자.
- * whisperx CLI를 그대로 쓰면 전사와 정렬이 같은 GPU를 잡아 프로세스가 즉사한다 —
- * 그래서 전사는 GPU, 정렬은 CPU로 나누는 우리 스크립트를 쓴다.
- */
-export function buildWhisperxArgs(options: WhisperxArgOptions): string[] {
-  return [
+/** 1단계 — 전사(ctranslate2, GPU). */
+export function buildTranscribeArgs(options: PhaseArgOptions): string[] {
+  const args = [
     options.scriptPath,
+    'transcribe',
     options.mediaPath,
     '--out',
-    options.outJson,
+    options.segmentsJson,
     '--model',
     options.model ?? 'large-v3',
     '--language',
     (options.language ?? 'ko').trim() || 'ko',
     '--device',
     options.device ?? 'cuda',
-    '--align-device',
-    options.alignDevice ?? 'cpu',
     '--compute-type',
     options.computeType ?? 'float16',
+    '--batch-size',
+    String(options.batchSize ?? 16),
+  ]
+  const prompt = buildInitialPrompt(options.initialPrompt)
+  if (prompt) args.push('--initial-prompt', prompt)
+  return args
+}
+
+/** 2단계 — 정렬(torch, GPU). 전사 프로세스가 끝난 뒤 별도 프로세스로 띄운다. */
+export function buildAlignArgs(options: PhaseArgOptions): string[] {
+  return [
+    options.scriptPath,
+    'align',
+    options.mediaPath,
+    '--segments',
+    options.segmentsJson,
+    '--out',
+    options.outJson,
+    '--language',
+    (options.language ?? 'ko').trim() || 'ko',
+    '--device',
+    options.alignDevice ?? options.device ?? 'cuda',
   ]
 }
 
@@ -148,7 +176,15 @@ export function parseWhisperxJson(raw: string): Cue[] {
 }
 
 
-export async function runWhisperx(options: WhisperxOptions): Promise<Cue[]> {
+export interface WhisperxProgress {
+  phase: 'transcribe' | 'align'
+  message: string
+}
+
+export async function runWhisperx(
+  options: WhisperxOptions,
+  onProgress: (progress: WhisperxProgress) => void = () => {},
+): Promise<Cue[]> {
   const python = options.pythonBin ?? findWhisperxPython()
   if (!python) {
     throw new Error(
@@ -156,19 +192,34 @@ export async function runWhisperx(options: WhisperxOptions): Promise<Cue[]> {
     )
   }
   const scriptPath = options.scriptPath ?? join(process.cwd(), 'scripts', 'whisperx_stt.py')
-  const outJson = join(options.outputDir, `${basename(options.mediaPath, extname(options.mediaPath))}.json`)
+  const stem = basename(options.mediaPath, extname(options.mediaPath))
+  const segmentsJson = join(options.outputDir, stem + '.segments.json')
+  const outJson = join(options.outputDir, stem + '.aligned.json')
   const { device, computeType } = resolveCompute(await detectCuda(python), options.computeType)
-
-  try {
-    await execa(python, buildWhisperxArgs({ ...options, scriptPath, outJson, device, computeType }), {
-      timeout: 1000 * 60 * 60,
-      // ctranslate2가 cuDNN DLL을 찾게 torch/lib을 앞에 붙인다(없으면 GPU 실행이 즉사한다).
-      env: { PATH: `${torchLibDir(python)}${delimiter}${process.env.PATH ?? ''}` },
-    })
-  } catch (err) {
-    const error = err as { stderr?: string; shortMessage?: string }
-    const detail = String(error.stderr ?? '').trim().split('\n').slice(-4).join('\n')
-    throw new Error(`WhisperX 실패: ${error.shortMessage ?? '알 수 없는 오류'}\n${detail}`)
+  const phaseOptions: PhaseArgOptions = { ...options, scriptPath, segmentsJson, outJson, device, computeType }
+  const runOptions = {
+    timeout: 1000 * 60 * 60,
+    // ctranslate2가 cuDNN DLL을 찾게 torch/lib을 앞에 붙인다(없으면 GPU 실행이 즉사한다).
+    env: { PATH: torchLibDir(python) + delimiter + (process.env.PATH ?? '') },
   }
+
+  const run = async (phase: 'transcribe' | 'align', args: string[]) => {
+    try {
+      await execa(python, args, runOptions)
+    } catch (err) {
+      const error = err as { stderr?: string; shortMessage?: string }
+      const detail = String(error.stderr ?? '').trim().split('\n').slice(-4).join('\n')
+      const label = phase === 'transcribe' ? '받아쓰기' : '정렬'
+      throw new Error('WhisperX ' + label + ' 실패: ' + (error.shortMessage ?? '알 수 없는 오류') + '\n' + detail)
+    }
+  }
+
+  onProgress({ phase: 'transcribe', message: '음성을 받아쓰는 중' })
+  await run('transcribe', buildTranscribeArgs(phaseOptions))
+
+  // 전사 프로세스가 완전히 끝난 뒤에 정렬을 띄운다 — 같이 올리면 GPU에서 충돌한다.
+  onProgress({ phase: 'align', message: '단어 단위로 시간을 맞추는 중' })
+  await run('align', buildAlignArgs(phaseOptions))
+
   return parseWhisperxJson(await readFile(outJson, 'utf8'))
 }

@@ -113,6 +113,7 @@ program
   .option('--language <language>', 'spoken language code, or auto', 'ko')
   .option('--compute-type <type>', 'ctranslate2 compute type', 'float16')
   .option('--out-dir <dir>', 'directory for WhisperX intermediate output')
+  .option('--initial-prompt <text>', 'script hint that improves proper nouns and numbers')
   .option('--json', 'print JSON report')
   .action(async (mediaPath: string, options: Parameters<typeof runLongformStt>[1]) => {
     process.exitCode = await runLongformStt(mediaPath, options)

@@ -1,24 +1,51 @@
 import { describe, expect, it } from 'vitest'
-import { buildWhisperxArgs, parseWhisperxJson, resolveCompute, torchLibDir } from './whisperx.js'
+import {
+  buildAlignArgs,
+  buildInitialPrompt,
+  buildTranscribeArgs,
+  parseWhisperxJson,
+  resolveCompute,
+  torchLibDir,
+} from './whisperx.js'
 
-describe('WhisperX 인자', () => {
-  const base = { mediaPath: 'C:/영상.mp4', outputDir: 'C:/out', scriptPath: 'C:/repo/scripts/whisperx_stt.py', outJson: 'C:/out/영상.json' }
+describe('WhisperX 단계 인자', () => {
+  const base = {
+    mediaPath: 'C:/영상.mp4',
+    outputDir: 'C:/out',
+    scriptPath: 'C:/repo/scripts/whisperx_stt.py',
+    segmentsJson: 'C:/out/영상.segments.json',
+    outJson: 'C:/out/영상.aligned.json',
+  }
 
-  it('전용 스크립트를 부르고 결과 경로를 넘긴다', () => {
-    const args = buildWhisperxArgs(base)
-    expect(args[0]).toBe('C:/repo/scripts/whisperx_stt.py')
-    expect(args[1]).toBe('C:/영상.mp4')
-    expect(args[args.indexOf('--out') + 1]).toBe('C:/out/영상.json')
+  it('1단계는 전사 — 모델·배치·결과 경로를 넘긴다', () => {
+    const args = buildTranscribeArgs(base)
+    expect(args[1]).toBe('transcribe')
+    expect(args[args.indexOf('--out') + 1]).toBe('C:/out/영상.segments.json')
     expect(args[args.indexOf('--model') + 1]).toBe('large-v3')
+    expect(args[args.indexOf('--batch-size') + 1]).toBe('16')
   })
 
-  it('정렬은 기본이 CPU다 — GPU에서 전사와 겹치면 프로세스가 즉사한다', () => {
-    expect(buildWhisperxArgs(base)[buildWhisperxArgs(base).indexOf('--align-device') + 1]).toBe('cpu')
-    expect(buildWhisperxArgs({ ...base, device: 'cuda' })).toContain('cuda')
+  it('대본이 있으면 STT 힌트로 넘긴다 — 고유명사·숫자 정확도가 올라간다', () => {
+    const args = buildTranscribeArgs({ ...base, initialPrompt: '서울대학교 AI 대학원 입학기' })
+    expect(args[args.indexOf('--initial-prompt') + 1]).toBe('서울대학교 AI 대학원 입학기')
+    // 대본이 없으면 아예 넘기지 않는다
+    expect(buildTranscribeArgs(base)).not.toContain('--initial-prompt')
   })
 
-  it('언어를 비우면 ko로 채운다', () => {
-    expect(buildWhisperxArgs({ ...base, language: '' })[buildWhisperxArgs(base).indexOf('--language') + 1]).toBe('ko')
+  it('힌트는 앞부분만 잘라 쓴다(모델이 긴 프롬프트를 잘라버린다)', () => {
+    const long = '가나다 '.repeat(500)
+    expect(buildInitialPrompt(long).length).toBe(400)
+    expect(buildInitialPrompt('  여러   공백 줄바꿈  ')).toBe('여러 공백 줄바꿈')
+
+  })
+
+  it('2단계는 정렬 — 전사 결과를 읽어 GPU에서 맞춘다', () => {
+    const args = buildAlignArgs(base)
+    expect(args[1]).toBe('align')
+    expect(args[args.indexOf('--segments') + 1]).toBe('C:/out/영상.segments.json')
+    expect(args[args.indexOf('--device') + 1]).toBe('cuda')
+    // 필요하면 정렬만 CPU로 물러설 수 있다
+    expect(buildAlignArgs({ ...base, alignDevice: 'cpu' })[args.indexOf('--device') + 1]).toBe('cpu')
   })
 })
 

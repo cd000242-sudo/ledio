@@ -1430,6 +1430,10 @@ function renderLongformCaptions(content) {
     },
     // 엔진별로 키가 따로 저장돼 있다(story-wizard와 같은 규칙).
     getSettings: () => getSettings(),
+    // Electron이 끌어온 파일의 실제 경로를 알려준다(브라우저에서는 없다).
+    pathOf: (file) => (file && typeof file.path === 'string' ? file.path : null),
+    setTimer: (fn, ms) => window.setTimeout(fn, ms),
+    clearTimer: (id) => window.clearTimeout(id),
     apiKeyFor: (method) => {
       const settings = getSettings();
       return {

@@ -4,6 +4,18 @@
  * 순서: 세밀 STT(WhisperX) → 대본 대조 보정(선택) → 롱폼 재편성 → 공백 메움 → 검수.
  */
 
+const STEPS = [
+  { id: 'stt', label: '받아쓰기' },
+  { id: 'correct', label: '대본 대조 보정' },
+  { id: 'format', label: '자막 정리' },
+  { id: 'audit', label: '검수' },
+]
+
+const MODEL_OPTIONS = [
+  { value: 'large-v3', label: '정확도 우선 (large-v3)' },
+  { value: 'large-v3-turbo', label: '속도 우선 (turbo)' },
+]
+
 const ENGINE_OPTIONS = [
   { value: '', label: '환경설정 기본 엔진' },
   { value: 'agent-claude', label: '클로드코드 (구독)' },
@@ -42,29 +54,46 @@ export function renderLongformCaptionsTab(container, deps = {}) {
     el('p', 'longform-intro', '컷 편집이 끝난 영상이나 음성을 넣으면 롱폼용 자막 두 개를 만듭니다. 대본을 함께 주면 오타·고유명사·숫자를 문맥에 맞게 고칩니다.'),
   )
 
-  // ── 입력 파일 ──
-  const mediaRow = el('div', 'longform-row')
-  const mediaLabel = el('span', 'longform-path', '선택된 파일 없음')
-  const mediaBtn = el('button', 'primary-button', '영상·음성 선택')
-  mediaBtn.type = 'button'
-  mediaBtn.addEventListener('click', async () => {
-    const path = await deps.pickMedia?.()
+  // ── 입력 파일: 클릭 또는 드래그&드롭 ──
+  const drop = el('div', 'longform-drop')
+  const dropTitle = el('strong', null, '영상 또는 음성 파일을 여기에 끌어다 놓으세요')
+  const dropHint = el('span', 'longform-path', '또는 클릭해서 고르기 · mp4 mov mkv mp3 wav m4a')
+  drop.append(dropTitle, dropHint)
+
+  function setMedia(path) {
     if (!path) return
     state.mediaPath = path
-    mediaLabel.textContent = path
+    dropTitle.textContent = path.split(/[/\\]/).pop()
+    dropHint.textContent = path
+    drop.classList.add('is-set')
     updateRunnable()
+  }
+
+  drop.addEventListener('click', async () => setMedia(await deps.pickMedia?.()))
+  drop.addEventListener('dragover', (event) => {
+    event.preventDefault()
+    drop.classList.add('is-over')
   })
-  mediaRow.append(mediaBtn, mediaLabel)
-  root.append(mediaRow)
+  drop.addEventListener('dragleave', () => drop.classList.remove('is-over'))
+  drop.addEventListener('drop', (event) => {
+    event.preventDefault()
+    drop.classList.remove('is-over')
+    // Electron에서는 끌어온 파일의 실제 경로를 그대로 쓸 수 있다.
+    const file = event.dataTransfer?.files?.[0]
+    const path = deps.pathOf?.(file) ?? file?.path
+    if (path) setMedia(path)
+    else addNoteOnce('이 파일의 경로를 읽지 못했습니다. 클릭해서 골라주세요.')
+  })
+  root.append(drop)
 
   // ── 대본(선택) ──
   const scriptArea = el('textarea', 'longform-script')
-  scriptArea.rows = 6
-  scriptArea.placeholder = '대본을 붙여넣으세요. 없으면 비워두셔도 됩니다(보정 단계만 건너뜁니다).'
+  scriptArea.rows = 5
+  scriptArea.placeholder = '대본을 붙여넣으면 고유명사·숫자·영어를 정확히 받아씁니다. 없어도 됩니다.'
   scriptArea.addEventListener('input', () => {
     state.scriptText = scriptArea.value
   })
-  const scriptBtn = el('button', 'ghost-button', '대본 파일 불러오기')
+  const scriptBtn = el('button', 'ghost-button longform-inline-btn', '대본 파일 불러오기')
   scriptBtn.type = 'button'
   scriptBtn.addEventListener('click', async () => {
     const picked = await deps.pickScript?.()
@@ -72,9 +101,17 @@ export function renderLongformCaptionsTab(container, deps = {}) {
     scriptArea.value = picked.text
     state.scriptText = picked.text
   })
-  root.append(field('대본 (선택)', scriptArea), scriptBtn)
+  const scriptField = field('대본 (선택)', scriptArea)
+  scriptField.append(scriptBtn)
+  root.append(scriptField)
 
   // ── 옵션 ──
+  const modelSelect = el('select', 'longform-model')
+  for (const option of MODEL_OPTIONS) {
+    const node = el('option', null, option.label)
+    node.value = option.value
+    modelSelect.append(node)
+  }
   const engineSelect = el('select', 'longform-engine')
   for (const option of ENGINE_OPTIONS) {
     const node = el('option', null, option.label)
@@ -83,7 +120,6 @@ export function renderLongformCaptionsTab(container, deps = {}) {
   }
   const langInput = el('input', 'longform-lang')
   langInput.value = 'ko'
-  langInput.size = 6
   const minInput = el('input', 'longform-num')
   minInput.type = 'number'
   minInput.value = '18'
@@ -91,22 +127,67 @@ export function renderLongformCaptionsTab(container, deps = {}) {
   maxInput.type = 'number'
   maxInput.value = '44'
 
-  const options = el('div', 'longform-options')
-  options.append(
+  const options = el('details', 'longform-advanced')
+  const summary = document.createElement('summary')
+  summary.textContent = '세부 설정'
+  const optionGrid = el('div', 'longform-options')
+  optionGrid.append(
+    field('받아쓰기 모델', modelSelect),
     field('보정 엔진', engineSelect),
     field('언어', langInput),
     field('최소 글자', minInput),
     field('최대 글자', maxInput),
   )
+  options.append(summary, optionGrid)
   root.append(options)
 
   // ── 실행 ──
-  const runBtn = el('button', 'primary-button', '자막 만들기')
+  const runBtn = el('button', 'primary-button longform-run', '자막 만들기')
   runBtn.type = 'button'
   runBtn.disabled = true
+
+  const steps = el('ol', 'longform-steps')
+  const stepNodes = new Map()
+  for (const step of STEPS) {
+    const node = el('li', 'longform-step', step.label)
+    steps.append(node)
+    stepNodes.set(step.id, node)
+  }
+  steps.hidden = true
+
   const status = el('p', 'longform-status', '')
   const result = el('div', 'longform-result')
-  root.append(runBtn, status, result)
+  const notes = el('div', 'longform-notes')
+  root.append(runBtn, steps, status, notes, result)
+
+  function addNoteOnce(text) {
+    if (notes.textContent.includes(text)) return
+    notes.append(el('p', 'longform-note', text))
+  }
+
+  /** 단계 표시 — 지난 단계는 완료, 현재 단계는 진행 중으로 칠한다. */
+  function markStep(current) {
+    steps.hidden = false
+    let passed = true
+    for (const step of STEPS) {
+      const node = stepNodes.get(step.id)
+      node.classList.remove('is-active', 'is-done')
+      if (step.id === current) {
+        node.classList.add('is-active')
+        passed = false
+      } else if (passed) {
+        node.classList.add('is-done')
+      }
+    }
+  }
+
+  function finishSteps() {
+    steps.hidden = false
+    for (const node of stepNodes.values()) {
+      node.classList.remove('is-active')
+      node.classList.add('is-done')
+    }
+  }
 
   function updateRunnable() {
     runBtn.disabled = state.busy || !state.mediaPath
@@ -149,10 +230,19 @@ export function renderLongformCaptionsTab(container, deps = {}) {
     state.busy = true
     updateRunnable()
     result.replaceChildren()
-    status.textContent = '받아쓰는 중… 영상 길이에 따라 몇 분 걸립니다.'
+    notes.replaceChildren()
+    markStep('stt')
+    // 실측: 16분 오디오 → 3분 19초. 대략 영상 길이의 1/5.
+    status.textContent = '받아쓰는 중… 영상 길이의 1/5쯤 걸립니다(16분 영상이면 3분 남짓).'
+
     // 기본 엔진은 클로드코드(구독) — API 키가 필요한 엔진을 고른 경우에만 키를 싣는다.
     const method = engineSelect.value || 'agent-claude'
     const apiKey = method.startsWith('api-') ? (deps.apiKeyFor?.(method) ?? '') : ''
+    const startedAt = Date.now()
+
+    // 받아쓰기가 끝나는 시점을 알 수 없으므로, 대본이 있으면 보정 단계로 넘어간 것처럼 표시한다.
+    const stepTimer = deps.setTimer?.(() => markStep(state.scriptText.trim() ? 'correct' : 'format'), 60000)
+
     try {
       const response = await fetch('/api/longform-captions', {
         method: 'POST',
@@ -162,6 +252,7 @@ export function renderLongformCaptionsTab(container, deps = {}) {
           script: state.scriptText,
           method,
           apiKey,
+          model: modelSelect.value,
           language: langInput.value.trim() || 'ko',
           minChars: Number(minInput.value) || 18,
           maxChars: Number(maxInput.value) || 44,
@@ -169,11 +260,18 @@ export function renderLongformCaptionsTab(container, deps = {}) {
       })
       const data = await response.json()
       renderResult(data)
-      status.textContent = data.ok ? '완료' : '실패'
+      if (data.ok) {
+        finishSteps()
+        const seconds = Math.round((Date.now() - startedAt) / 1000)
+        status.textContent = `완료 · ${Math.floor(seconds / 60)}분 ${seconds % 60}초 걸렸습니다`
+      } else {
+        status.textContent = '실패'
+      }
     } catch (error) {
       renderResult({ ok: false, error: `요청 실패: ${error.message}` })
       status.textContent = '실패'
     } finally {
+      deps.clearTimer?.(stepTimer)
       state.busy = false
       updateRunnable()
     }

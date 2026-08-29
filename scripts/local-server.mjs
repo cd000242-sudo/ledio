@@ -1414,9 +1414,12 @@ async function handleLongformCaptions(req, res, workspaceRoot, commandRunner) {
   }
 
   // ① 세밀 STT — 무거운 일이라 CLI(WhisperX)에 맡긴다.
+  const script = String(body.script ?? '').trim()
   const sttArgs = ['longform-stt', mediaPath, '--json']
   if (body.language) sttArgs.push('--language', String(body.language))
   if (body.model) sttArgs.push('--model', String(body.model))
+  // 대본 앞부분을 받아쓰기 힌트로 넘긴다 — 고유명사·숫자를 처음부터 맞게 받아쓴다.
+  if (script) sttArgs.push('--initial-prompt', script.slice(0, 400))
   const sttResult = await commandRunner({
     command: 'longform-stt',
     projectPath: mediaPath,
@@ -1435,7 +1438,6 @@ async function handleLongformCaptions(req, res, workspaceRoot, commandRunner) {
   let correction = null
 
   // ② 대본 대조 보정 — 대본이 있을 때만. 시각은 건드리지 않고 텍스트만 고친다.
-  const script = String(body.script ?? '').trim()
   if (script) {
     const method = String(body.method ?? 'agent-claude')
     const apiKey = String(body.apiKey ?? '').trim()
