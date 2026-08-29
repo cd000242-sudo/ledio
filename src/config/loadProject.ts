@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises'
 import YAML from 'yaml'
 import { projectSchema, type Project } from './schema.js'
+import { withEditDefaults } from './editProject.js'
 import { resolveProjectPaths } from '../utils/paths.js'
 import { ProjectValidationError } from '../utils/errors.js'
 
@@ -32,7 +33,8 @@ export async function loadProject(projectPath: string): Promise<LoadedProject> {
     )
   }
 
-  const result = projectSchema.safeParse(data)
+  // 편집 전용 프로젝트는 빠진 항목을 기본값으로 채워 검증한다(영상만 있어도 열리게).
+  const result = projectSchema.safeParse(withEditDefaults(data))
   if (!result.success) {
     const issues = result.error.issues.map((issue) => {
       const path = issue.path.join('.') || '(root)'
