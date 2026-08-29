@@ -2951,3 +2951,184 @@ body[data-mode='simple'] #workbenchToggleBtn {
 .timeline-playhead {
   z-index: 3;
 }
+
+
+/* ── 비서 패널 — 오른쪽에서 열리는 채팅창 ── */
+.assistant-panel {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: min(420px, 92vw);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  background: var(--panel);
+  border-left: 1px solid var(--line-strong);
+  box-shadow: var(--shadow);
+  z-index: 60;
+}
+
+/* 패널이 열리면 본문을 그만큼 좁혀 가리지 않게 한다(넓은 화면에서만). */
+@media (min-width: 1200px) {
+  body.assistant-open .studio-shell {
+    padding-right: min(420px, 92vw);
+  }
+}
+
+.assistant-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.assistant-head strong {
+  flex: 1;
+}
+
+.assistant-log {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-right: 4px;
+}
+
+.assistant-bubble {
+  padding: 9px 11px;
+  border-radius: 12px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 13px;
+}
+
+.assistant-user {
+  align-self: flex-end;
+  max-width: 88%;
+  background: var(--teal-soft);
+  border: 1px solid var(--line-strong);
+}
+
+.assistant-agent {
+  background: var(--panel-soft);
+  border: 1px solid var(--line);
+}
+
+.assistant-tool {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: var(--bg-strong);
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.assistant-tool-name {
+  color: var(--ink);
+}
+
+.assistant-tool.is-ok .assistant-tool-state {
+  color: var(--green);
+}
+
+.assistant-tool.is-failed .assistant-tool-state {
+  color: var(--red);
+}
+
+.assistant-tool-detail {
+  width: 100%;
+  margin: 4px 0 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.assistant-approval {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 11px;
+  border-radius: 12px;
+  border: 1px solid var(--copper);
+  background: var(--copper-soft);
+  font-size: 13px;
+}
+
+.assistant-approval-detail {
+  margin: 0;
+  max-height: 140px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.assistant-approval-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.assistant-notice {
+  padding: 9px 11px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.assistant-notice-error {
+  border-color: var(--red);
+  color: var(--red);
+}
+
+.assistant-welcome {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.assistant-example {
+  text-align: left;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px dashed var(--line-strong);
+  background: transparent;
+  color: var(--ink);
+  cursor: pointer;
+  font: inherit;
+}
+
+.assistant-example:hover {
+  background: var(--panel-soft);
+}
+
+.assistant-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.assistant-input {
+  width: 100%;
+  resize: vertical;
+  padding: 9px 11px;
+  border-radius: 10px;
+  border: 1px solid var(--line-strong);
+  background: var(--bg-strong);
+  color: var(--ink);
+  font: inherit;
+}
+
+.assistant-form-actions {
+  display: flex;
+  gap: 8px;
+}

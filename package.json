@@ -73,6 +73,7 @@
     "verify": "npm run lint && npm run typecheck && npm test && npm run build && npm run sample:validate && npm run sample:package && npm run smoke:render && npm run release:bundle"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0",
     "commander": "^12.1.0",
     "electron-updater": "^6.8.9",
     "execa": "^9.4.0",

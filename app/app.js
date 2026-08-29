@@ -24,6 +24,7 @@ import {
 import { renderImageGalleryTab, renderNarrationStudioTab, renderScriptLibraryTab, renderStoryWizardTab } from './story-wizard.js';
 import { renderProductWizardTab } from './product-wizard.js';
 import { getSettings, renderSettingsTab } from './settings.js';
+import { mountAssistant } from './assistant.js';
 
 const platformLabels = {
   youtube_shorts: '유튜브 쇼츠',
@@ -4481,3 +4482,4 @@ function renderAll() {
 
 bindStaticEvents();
 renderAll();
+mountAssistant({ trigger: byId('assistantBtn') });

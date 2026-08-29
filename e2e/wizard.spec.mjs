@@ -33,7 +33,8 @@ test('원클릭 위저드: 템플릿 → 대본 → 생성 → 완성 영상', a
   await page.getByRole('button', { name: '원클릭 제작' }).click()
 
   // 대본 형식 드롭다운에 템플릿 5종(+자유 형식) 로드 확인 후 반전형 선택 → 대본 채워짐
-  await expect(page.locator('#wizTemplateSelect option')).toHaveCount(6)
+  // (템플릿은 CLI를 띄워 받아오느라 실측 5~8초 — 기본 5초 대기로는 흔들린다)
+  await expect(page.locator('#wizTemplateSelect option')).toHaveCount(6, { timeout: 20_000 })
   await page.fill('#wizTopic', '한밤의 택배')
   await page.selectOption('#wizTemplateSelect', { label: '반전형' })
   const script = await page.inputValue('#wizScript')
@@ -56,7 +57,7 @@ test('원클릭 위저드: 템플릿 → 대본 → 생성 → 완성 영상', a
 test('API 키 없이 GPT 이미지 선택하면 사전 경고가 뜬다', async ({ page }) => {
   await page.goto(baseUrl)
   await page.getByRole('button', { name: '원클릭 제작' }).click()
-  await expect(page.locator('#wizTemplateSelect option')).toHaveCount(6)
+  await expect(page.locator('#wizTemplateSelect option')).toHaveCount(6, { timeout: 20_000 })
   await page.fill('#wizScript', '테스트 문장입니다.')
   await page.selectOption('#wizImageProvider', 'gpt')
   await page.getByRole('button', { name: /영상 만들기/ }).click()

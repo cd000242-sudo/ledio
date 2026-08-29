@@ -1,5 +1,6 @@
 /* global AbortSignal, Buffer, URL, fetch, process, setTimeout, clearTimeout */
 import { createReadStream, existsSync } from 'node:fs'
+import { createAssistantRuntime } from './server/assistant-runtime.mjs'
 import {
   COHERENCE_RULES,
   coupangViralPrompt,
@@ -1328,6 +1329,119 @@ async function handleScriptDelete(pathname, res, workspaceRoot) {
   sendJson(res, 200, { ok: true, removed: entries.length - next.length })
 }
 
+// ── 앱 조종 비서: 클로드코드 CLI를 MCP로 붙여 앱 기능을 도구로 쓰게 한다 ──
+
+/** 대화는 한 번에 하나만 — 동시에 여러 개를 돌리면 구독 한도만 태운다. */
+let assistantRuntime = null
+
+/**
+ * 승인 게이트 — 위험한 도구(렌더·덮어쓰기·취소)는 MCP 서버가 여기에 먼저 물어본다.
+ * 대화 스트림이 열려 있으면 UI에 카드로 띄우고 사용자의 대답을 기다린다.
+ * 대화 밖에서 온 호출은 물어볼 사람이 없으므로 그대로 통과시킨다.
+ */
+const pendingApprovals = new Map()
+let assistantStream = null
+
+const APPROVAL_TIMEOUT_MS = 300000
+
+function settleApproval(id, approved, reason) {
+  const pending = pendingApprovals.get(id)
+  if (!pending) return false
+  pendingApprovals.delete(id)
+  clearTimeout(pending.timer)
+  pending.resolve({ approved, reason })
+  return true
+}
+
+/** 대화가 끝나거나 중단되면 대기 중인 승인은 전부 거절로 정리한다(도구가 영원히 매달리지 않게). */
+function clearPendingApprovals(reason) {
+  for (const id of [...pendingApprovals.keys()]) settleApproval(id, false, reason)
+}
+
+async function handleAssistantApprovalRequest(req, res) {
+  const body = await readJsonBody(req)
+  if (!assistantStream) {
+    sendJson(res, 200, { ok: true, approved: true, reason: '대화 밖 호출 — 자동 승인' })
+    return
+  }
+  const id = `ap-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`
+  const decision = await new Promise((resolveApproval) => {
+    const timer = setTimeout(() => settleApproval(id, false, '5분 안에 답이 없어 취소했습니다.'), APPROVAL_TIMEOUT_MS)
+    pendingApprovals.set(id, { resolve: resolveApproval, timer })
+    assistantStream({ type: 'approval', id, tool: String(body.tool ?? ''), input: body.input ?? {} })
+  })
+  sendJson(res, 200, { ok: true, ...decision })
+}
+
+async function handleAssistantApprove(req, res) {
+  const body = await readJsonBody(req)
+  const id = String(body.id ?? '')
+  const approved = body.approved === true
+  const settled = settleApproval(id, approved, approved ? null : '사용자가 취소했습니다.')
+  sendJson(res, settled ? 200 : 404, { ok: settled, ...(settled ? {} : { error: '이미 끝난 승인 요청입니다.' }) })
+}
+
+async function handleAssistantStatus(res) {
+  sendJson(res, 200, {
+    ok: true,
+    installed: Boolean(findAgentBinary('claude', 'CLAUDE_BIN')),
+    loggedIn: agentLoggedIn('claude'),
+    busy: Boolean(assistantRuntime?.busy),
+  })
+}
+
+async function handleAssistantCancel(res) {
+  clearPendingApprovals('사용자가 대화를 중단했습니다.')
+  const cancelled = Boolean(assistantRuntime?.cancel())
+  sendJson(res, 200, { ok: true, cancelled })
+}
+
+/** 대화 한 턴 — 진행 상황을 SSE로 흘린다(도구 호출·텍스트·완료). */
+async function handleAssistantChat(req, res, workspaceRoot) {
+  const body = await readJsonBody(req)
+  if (assistantRuntime?.busy) {
+    sendJson(res, 409, { ok: false, error: '이미 대화가 진행 중입니다. 먼저 중단하세요.' })
+    return
+  }
+  assistantRuntime = createAssistantRuntime({
+    apiBase: `http://${req.headers.host}`,
+    serverScript: join(workspaceRoot, 'scripts', 'mcp', 'shorts-mcp.mjs'),
+    claudeBinary: findAgentBinary('claude', 'CLAUDE_BIN'),
+    defaults: { method: body.method ? String(body.method) : undefined, apiKey: body.apiKey ? String(body.apiKey) : undefined },
+  })
+
+  res.writeHead(200, {
+    'content-type': 'text/event-stream; charset=utf-8',
+    'cache-control': 'no-cache',
+    connection: 'keep-alive',
+    'x-accel-buffering': 'no',
+  })
+  const send = (event) => {
+    if (!res.writableEnded) res.write(`data: ${JSON.stringify(event)}\n\n`)
+  }
+
+  // 사용자가 창을 닫거나 새로고침하면 CLI도 같이 정리한다(좀비·비용 방지).
+  req.on('close', () => {
+    if (!res.writableEnded) assistantRuntime?.cancel()
+  })
+
+  assistantStream = send
+  try {
+    await assistantRuntime.chat({
+      message: String(body.message ?? ''),
+      sessionId: body.sessionId ? String(body.sessionId) : null,
+      model: body.model ? String(body.model) : null,
+      onEvent: send,
+    })
+  } catch (error) {
+    send({ type: 'error', message: String(error?.message ?? error) })
+  } finally {
+    clearPendingApprovals('대화가 끝나 승인 요청을 취소했습니다.')
+    assistantStream = null
+  }
+  res.end()
+}
+
 async function handleAgentsStatus(res) {
   sendJson(res, 200, {
     ok: true,
@@ -1407,6 +1521,33 @@ async function readProjectTitle(projectsDir, project) {
   } catch {
     return null
   }
+}
+
+/** 프로젝트 목록 — project.yaml이 있는 폴더만, 최근 수정순. 에이전트·UI가 프로젝트를 찾는 창구. */
+async function handleProjectsList(res, workspaceRoot) {
+  const { readdir } = await import('node:fs/promises')
+  const projectsDir = join(workspaceRoot, 'projects')
+  let entries = []
+  try {
+    entries = await readdir(projectsDir, { withFileTypes: true })
+  } catch {
+    /* 프로젝트 폴더가 아직 없음 */
+  }
+  const projects = []
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue
+    const projectFile = join(projectsDir, entry.name, 'project.yaml')
+    const info = await stat(projectFile).catch(() => null)
+    if (!info?.isFile()) continue
+    projects.push({
+      name: entry.name,
+      title: await readProjectTitle(projectsDir, entry.name),
+      projectPath: `projects/${entry.name}`,
+      updatedAt: info.mtime.toISOString(),
+    })
+  }
+  projects.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+  sendJson(res, 200, { ok: true, projects })
 }
 
 /** 모든 프로젝트에서 생성된 이미지 모음(갤러리) — 최신순. */
@@ -3004,6 +3145,11 @@ export function createShortsFactoryServer(options = {}) {
         return
       }
 
+      if (pathname === '/api/projects' && req.method === 'GET') {
+        await handleProjectsList(res, workspaceRoot)
+        return
+      }
+
       if (pathname === '/api/gallery/images' && req.method === 'GET') {
         await handleGalleryImages(res, workspaceRoot)
         return
@@ -3111,6 +3257,31 @@ export function createShortsFactoryServer(options = {}) {
 
       if (pathname.startsWith('/api/scripts/') && req.method === 'DELETE') {
         await handleScriptDelete(pathname, res, workspaceRoot)
+        return
+      }
+
+      if (pathname === '/api/assistant/status' && req.method === 'GET') {
+        await handleAssistantStatus(res)
+        return
+      }
+
+      if (pathname === '/api/assistant/chat' && req.method === 'POST') {
+        await handleAssistantChat(req, res, workspaceRoot)
+        return
+      }
+
+      if (pathname === '/api/assistant/approval' && req.method === 'POST') {
+        await handleAssistantApprovalRequest(req, res)
+        return
+      }
+
+      if (pathname === '/api/assistant/approve' && req.method === 'POST') {
+        await handleAssistantApprove(req, res)
+        return
+      }
+
+      if (pathname === '/api/assistant/cancel' && req.method === 'POST') {
+        await handleAssistantCancel(res)
         return
       }
 

@@ -1278,6 +1278,61 @@ describe('local server API', () => {
     expect(data.ok).toBe(false)
   })
 
+  it('reports assistant availability', async () => {
+    await startServer()
+    const data = await (await fetch(`${baseUrl}/api/assistant/status`)).json()
+    expect(data.ok).toBe(true)
+    expect(typeof data.installed).toBe('boolean')
+    expect(typeof data.loggedIn).toBe('boolean')
+    expect(data.busy).toBe(false)
+  })
+
+  it('streams assistant errors as SSE instead of failing the request', async () => {
+    await startServer()
+    // 빈 메시지는 CLI를 띄우기 전에 걸러진다 — 응답은 SSE 형식이어야 한다.
+    const response = await fetch(`${baseUrl}/api/assistant/chat`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ message: '   ' }),
+    })
+    expect(response.status).toBe(200)
+    expect(response.headers.get('content-type')).toContain('text/event-stream')
+    const body = await response.text()
+    expect(body.startsWith('data: ')).toBe(true)
+    const event = JSON.parse(body.slice('data: '.length).trim())
+    expect(event.type).toBe('error')
+    expect(event.message).toMatch(/비어 있습니다|Claude Code CLI/)
+  })
+
+  it('rejects a second assistant chat while one is running', async () => {
+    await startServer()
+    const data = await (await fetch(`${baseUrl}/api/assistant/cancel`, { method: 'POST' })).json()
+    expect(data).toEqual({ ok: true, cancelled: false })
+  })
+
+  it('lists projects that have a project.yaml, newest first', async () => {
+    await startServer()
+    const { mkdir: mkdirp, writeFile: write } = await import('node:fs/promises')
+    // project.yaml이 있는 폴더만 목록에 나온다 — 낭독 캐시 같은 보조 폴더는 제외.
+    for (const name of ['old-one', 'new-one']) {
+      await mkdirp(join(workspaceRoot, 'projects', name), { recursive: true })
+      await write(join(workspaceRoot, 'projects', name, 'project.yaml'), `projectName: ${name}\n`, 'utf8')
+    }
+    await mkdirp(join(workspaceRoot, 'projects', 'narrations'), { recursive: true })
+    await write(
+      join(workspaceRoot, 'projects', 'new-one', 'story-input.yaml'),
+      'projectName: new-one\ntitle: 새 프로젝트\n',
+      'utf8',
+    )
+    const { utimes } = await import('node:fs/promises')
+    await utimes(join(workspaceRoot, 'projects', 'old-one', 'project.yaml'), new Date(1), new Date(1))
+
+    const data = await (await fetch(`${baseUrl}/api/projects`)).json()
+    expect(data.ok).toBe(true)
+    expect(data.projects.map((project) => project.name)).toEqual(['new-one', 'old-one'])
+    expect(data.projects[0]).toMatchObject({ projectPath: 'projects/new-one', title: '새 프로젝트' })
+  })
+
   it('lists previously generated images across projects for the gallery', async () => {
     await startServer()
     const { mkdir: mkdirp, writeFile: write } = await import('node:fs/promises')
