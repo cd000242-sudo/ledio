@@ -1,4 +1,4 @@
-/* global URL */
+/* global URL, document */
 import { test, expect } from '@playwright/test'
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'

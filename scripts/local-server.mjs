@@ -1,7 +1,12 @@
 /* global AbortSignal, Buffer, URL, fetch, process, setTimeout, clearTimeout */
 import { createReadStream, existsSync } from 'node:fs'
 import { createAssistantRuntime } from './server/assistant-runtime.mjs'
-import { buildLongformOutputs, buildScriptFile, correctWithScript } from './server/longform-captions.mjs'
+import {
+  buildBurnSrt,
+  buildLongformOutputs,
+  buildScriptFile,
+  correctWithScript,
+} from './server/longform-captions.mjs'
 import {
   COHERENCE_RULES,
   coupangViralPrompt,
@@ -1457,15 +1462,19 @@ async function handleLongformCaptions(req, res, workspaceRoot, commandRunner) {
   let burned = null
   const burnMode = String(body.burn ?? 'none')
   if (burnMode === 'burn' || burnMode === 'mux') {
+    // 화면 자막은 한 줄에 들어갈 길이로 다시 나눈다(어절이 두 줄로 쪼개지는 것 방지).
+    const burnSrt = await buildBurnSrt(cues, mediaPath, { subtitles, writeFile }, {
+      burnMaxChars: Number(body.burnMaxChars) || 26,
+    })
     const burnResult = await commandRunner({
       command: 'burn-captions',
       projectPath: mediaPath,
       workspaceRoot,
-      args: ['burn-captions', mediaPath, '--srt', result.files.filled, '--mode', burnMode, '--json'],
+      args: ['burn-captions', mediaPath, '--srt', burnSrt.path, '--mode', burnMode, '--json'],
     })
     const burnReport = parseJsonObjectFromText(burnResult.stdout)
     burned = burnReport?.ok
-      ? { path: burnReport.outPath, mode: burnMode }
+      ? { path: burnReport.outPath, mode: burnMode, srt: burnSrt.path, cueCount: burnSrt.cueCount }
       : { error: burnReport?.error || String(burnResult.stderr ?? '').trim().slice(-300) || '자막 넣기에 실패했습니다.' }
   }
 

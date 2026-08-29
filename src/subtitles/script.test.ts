@@ -1,41 +1,80 @@
 import { describe, expect, it } from 'vitest'
-import { acceptPolishedScript, buildScriptPolishPrompt, cuesToScript } from './script.js'
+import {
+  acceptPolishedScript,
+  buildScriptPolishPrompt,
+  cuesToScript,
+  paragraphGapThreshold,
+} from './script.js'
 import type { Cue } from './srt.js'
 
-const cue = (startMs: number, endMs: number, text: string): Cue => ({ startMs, endMs, text })
-
 describe('자막 → 대본', () => {
-  it('문장을 잇고 긴 쉼에서 문단을 나눈다', () => {
-    const script = cuesToScript([
-      cue(0, 2000, '안녕하세요 쿠키입니다.'),
-      cue(2100, 4000, '오늘은 자막 이야기를 하려고 합니다.'),
-      // 2초 쉼 — 여기서 문단이 바뀐다
-      cue(6000, 8000, '먼저 받아쓰기부터 보겠습니다.'),
-    ])
+  /** 문장 사이 쉼을 지정해 큐를 만든다(단어 단위 큐가 문장으로 묶인다). */
+  const speech = (sentences: { text: string; gapMs: number }[]): Cue[] => {
+    const cues: Cue[] = []
+    let clock = 0
+    for (const sentence of sentences) {
+      clock += sentence.gapMs
+      cues.push({ startMs: clock, endMs: clock + 1500, text: sentence.text })
+      clock += 1500
+    }
+    return cues
+  }
+
+  it('길게 쉰 자리에서 문단을 나눈다 — 기준은 그 화자의 쉼 분포에서 뽑는다', () => {
+    const script = cuesToScript(
+      speech([
+        { text: '안녕하세요 쿠키입니다.', gapMs: 0 },
+        { text: '오늘은 자막 이야기를 합니다.', gapMs: 100 },
+        { text: '먼저 받아쓰기부터 보겠습니다.', gapMs: 900 },
+        { text: '그 다음은 정렬입니다.', gapMs: 100 },
+      ]),
+      { minSentences: 2, maxSentences: 5 },
+    )
     expect(script).toBe(
-      '안녕하세요 쿠키입니다. 오늘은 자막 이야기를 하려고 합니다.\n\n먼저 받아쓰기부터 보겠습니다.',
+      '안녕하세요 쿠키입니다. 오늘은 자막 이야기를 합니다.\n\n먼저 받아쓰기부터 보겠습니다. 그 다음은 정렬입니다.',
     )
   })
 
-  it('문장이 안 끝났으면 쉼이 길어도 자르지 않는다', () => {
-    const script = cuesToScript([
-      cue(0, 2000, '그러니까 제 말은'),
-      cue(6000, 8000, '이게 생각보다 오래 걸린다는 겁니다.'),
-    ])
-    expect(script).toBe('그러니까 제 말은 이게 생각보다 오래 걸린다는 겁니다.')
+  it('쉼이 고른 화자도 문장 수 상한으로 끊어 준다 — 안 그러면 벽처럼 읽힌다', () => {
+    const sentences = Array.from({ length: 9 }, (_, index) => ({ text: `문장 ${index}입니다.`, gapMs: 200 }))
+    const paragraphs = cuesToScript(speech(sentences), { maxSentences: 3 }).split('\n\n')
+    expect(paragraphs).toHaveLength(3)
+    for (const paragraph of paragraphs) expect((paragraph.match(/\./g) ?? []).length).toBe(3)
   })
 
-  it('문단이 너무 길면 문장 끝에서 나눈다', () => {
-    const long = Array.from({ length: 12 }, (_, index) => cue(index * 1000, index * 1000 + 900, '같은 문장을 계속 반복합니다.'))
-    const script = cuesToScript(long, { maxParagraphChars: 100 })
-    const paragraphs = script.split('\n\n')
-    expect(paragraphs.length).toBeGreaterThan(1)
-    for (const paragraph of paragraphs) expect([...paragraph].length).toBeLessThan(200)
+  it('문단이 너무 잘게 쪼개지지 않게 최소 문장 수를 지킨다', () => {
+    const script = cuesToScript(
+      speech([
+        { text: '첫 문장입니다.', gapMs: 0 },
+        { text: '둘째 문장입니다.', gapMs: 2000 },
+        { text: '셋째 문장입니다.', gapMs: 2000 },
+      ]),
+      { minSentences: 2 },
+    )
+    expect(script.split('\n\n')[0]).toBe('첫 문장입니다. 둘째 문장입니다.')
+  })
+
+  it('마침표가 없는 마지막 조각도 버리지 않는다', () => {
+    expect(cuesToScript([{ startMs: 0, endMs: 1000, text: '끝맺지 않은 말' }])).toBe('끝맺지 않은 말')
   })
 
   it('빈 큐는 버리고, 큐가 없으면 빈 문자열', () => {
-    expect(cuesToScript([cue(0, 1000, '   '), cue(1000, 2000, '내용')])).toBe('내용')
+    expect(cuesToScript([{ startMs: 0, endMs: 1000, text: '   ' }, { startMs: 1000, endMs: 2000, text: '내용' }])).toBe('내용')
     expect(cuesToScript([])).toBe('')
+  })
+})
+
+describe('문단 기준 계산', () => {
+  it('쉼 분포의 분위수를 쓰되 최소값 아래로는 내려가지 않는다', () => {
+    const sentences = [
+      { text: 'a', gapBeforeMs: 0 },
+      { text: 'b', gapBeforeMs: 100 },
+      { text: 'c', gapBeforeMs: 200 },
+      { text: 'd', gapBeforeMs: 900 },
+    ]
+    expect(paragraphGapThreshold(sentences, 0.75, 300)).toBe(900)
+    // 전부 짧게 쉬는 화자라면 최소 기준이 걸린다
+    expect(paragraphGapThreshold(sentences.slice(0, 3), 0.5, 300)).toBe(300)
   })
 })
 

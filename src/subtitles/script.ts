@@ -8,10 +8,18 @@ import type { Cue } from './srt.js'
  */
 
 export interface ScriptOptions {
-  /** 이 시간 이상 말이 비면 문단을 나눈다(기본 1.2초). */
-  paragraphGapMs?: number
-  /** 문단이 이 길이를 넘으면 다음 문장 끝에서 나눈다(기본 400자) — 너무 긴 덩어리 방지. */
-  maxParagraphChars?: number
+  /**
+   * 문단을 나눌 쉼의 기준을 이 분위수로 정한다(기본 0.75 = 상위 25% 긴 쉼).
+   * 말 속도는 사람마다 다르므로 고정 ms가 아니라 그 사람의 쉼 분포에서 뽑는다.
+   * (실측: 어떤 화자는 문장 사이 최대 쉼이 1.5초였다 — 고정 1.2초 기준으로는 거의 안 끊겼다.)
+   */
+  gapPercentile?: number
+  /** 그래도 이보다 짧은 쉼에서는 나누지 않는다(기본 300ms). */
+  minGapMs?: number
+  /** 문단이 이 문장 수 미만이면 쉼이 길어도 넘어간다(기본 2). */
+  minSentences?: number
+  /** 이 문장 수에 도달하면 쉼과 무관하게 나눈다(기본 5). */
+  maxSentences?: number
 }
 
 const SENTENCE_END = /[.!?。…？！]$/
@@ -23,34 +31,76 @@ function endsSentence(text: string): boolean {
   return SENTENCE_END.test(text.trim())
 }
 
-export function cuesToScript(cues: Cue[], options: ScriptOptions = {}): string {
-  const paragraphGapMs = options.paragraphGapMs ?? 1200
-  const maxParagraphChars = options.maxParagraphChars ?? 400
+interface Sentence {
+  text: string
+  /** 앞 문장이 끝나고 이 문장이 시작되기까지 비어 있던 시간. */
+  gapBeforeMs: number
+}
 
-  const paragraphs: string[] = []
-  let current = ''
+/** 단어 큐를 문장으로 묶고, 문장 사이의 쉼을 함께 들고 온다. */
+function toSentences(cues: Cue[]): Sentence[] {
+  const sentences: Sentence[] = []
+  let buffer = ''
+  let gapBeforeMs = 0
   let previousEndMs: number | null = null
-
-  const flush = () => {
-    const text = current.trim()
-    if (text) paragraphs.push(text)
-    current = ''
-  }
+  let pendingGapMs = 0
 
   for (const cue of cues) {
     const piece = String(cue.text ?? '').trim()
     if (!piece) continue
-
-    const gapMs = previousEndMs === null ? 0 : cue.startMs - previousEndMs
-    // 긴 쉼 뒤이고 앞 문장이 끝나 있으면 문단을 바꾼다.
-    if (current && gapMs >= paragraphGapMs && endsSentence(current)) flush()
-    // 문단이 너무 길어지면 문장 끝에서 끊는다.
-    else if (current && charLength(current) >= maxParagraphChars && endsSentence(current)) flush()
-
-    current = current ? `${current} ${piece}` : piece
+    const gap = previousEndMs === null ? 0 : Math.max(0, cue.startMs - previousEndMs)
+    if (!buffer) gapBeforeMs = pendingGapMs || gap
+    buffer = buffer ? `${buffer} ${piece}` : piece
     previousEndMs = cue.endMs
+
+    if (endsSentence(buffer)) {
+      sentences.push({ text: buffer, gapBeforeMs })
+      buffer = ''
+      pendingGapMs = 0
+    }
   }
-  flush()
+  if (buffer) sentences.push({ text: buffer, gapBeforeMs })
+  return sentences
+}
+
+/** 화자의 쉼 분포에서 문단 경계 기준을 뽑는다. */
+export function paragraphGapThreshold(sentences: Sentence[], percentile = 0.75, minGapMs = 300): number {
+  const gaps = sentences
+    .slice(1)
+    .map((sentence) => sentence.gapBeforeMs)
+    .sort((left, right) => left - right)
+  if (gaps.length === 0) return minGapMs
+  const index = Math.min(gaps.length - 1, Math.floor(gaps.length * percentile))
+  return Math.max(minGapMs, gaps[index] ?? minGapMs)
+}
+
+/**
+ * 자막 큐 → 읽을 수 있는 대본 텍스트.
+ *
+ * 문단은 **화자가 실제로 길게 쉰 자리**에서 나눈다. 기준은 그 사람의 쉼 분포에서 뽑아
+ * 빠르게 말하는 사람과 느리게 말하는 사람 모두에서 비슷한 리듬이 나오게 한다.
+ * 쉼이 고른 화자를 위해 문장 수 상한도 함께 둔다.
+ */
+export function cuesToScript(cues: Cue[], options: ScriptOptions = {}): string {
+  const minSentences = options.minSentences ?? 2
+  const maxSentences = options.maxSentences ?? 5
+  const sentences = toSentences(cues)
+  if (sentences.length === 0) return ''
+
+  const threshold = paragraphGapThreshold(sentences, options.gapPercentile ?? 0.75, options.minGapMs ?? 300)
+  const paragraphs: string[] = []
+  let current: string[] = []
+
+  for (const sentence of sentences) {
+    const longPause = sentence.gapBeforeMs >= threshold && current.length >= minSentences
+    const tooLong = current.length >= maxSentences
+    if (current.length > 0 && (longPause || tooLong)) {
+      paragraphs.push(current.join(' '))
+      current = []
+    }
+    current.push(sentence.text)
+  }
+  if (current.length > 0) paragraphs.push(current.join(' '))
 
   return paragraphs.join('\n\n')
 }

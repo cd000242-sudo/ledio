@@ -15,6 +15,7 @@ export function outputPaths(mediaPath) {
     aligned: join(dir, `${stem}_정렬.srt`),
     filled: join(dir, `${stem}_정렬_공백메움.srt`),
     script: join(dir, `${stem}_대본.txt`),
+    burnSrt: join(dir, `${stem}_영상자막.srt`),
   }
 }
 
@@ -96,4 +97,18 @@ export async function buildScriptFile(cues, mediaPath, deps, options = {}) {
   const path = outputPaths(mediaPath).script
   await writeFile(path, text, 'utf8')
   return { path, chars: [...text].length, polished }
+}
+
+/**
+ * 영상에 구울 자막을 따로 만든다.
+ * 화면 자막은 파일 자막보다 짧아야 한다 — 길면 libass가 두 줄로 접으면서 어절 중간을 자른다(실측).
+ */
+export async function buildBurnSrt(cues, mediaPath, deps, options = {}) {
+  const { subtitles, writeFile } = deps
+  const maxChars = options.burnMaxChars ?? 26
+  const short = subtitles.reformatSubtitles(cues, { minChars: Math.min(12, maxChars), maxChars })
+  const filled = subtitles.fillGaps(short)
+  const path = outputPaths(mediaPath).burnSrt
+  await writeFile(path, subtitles.serializeSrt(filled), 'utf8')
+  return { path, cueCount: filled.length }
 }
