@@ -3319,3 +3319,18 @@ body[data-mode='simple'] #workbenchToggleBtn {
   color: var(--muted);
   font-size: 12px;
 }
+
+.longform-checks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+}
+
+.longform-check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--ink);
+  cursor: pointer;
+}

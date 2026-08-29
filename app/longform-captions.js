@@ -89,7 +89,7 @@ export function renderLongformCaptionsTab(container, deps = {}) {
   // ── 대본(선택) ──
   const scriptArea = el('textarea', 'longform-script')
   scriptArea.rows = 5
-  scriptArea.placeholder = '대본을 붙여넣으면 고유명사·숫자·영어를 정확히 받아씁니다. 없어도 됩니다.'
+  scriptArea.placeholder = '대본이 있으면 붙여넣으세요 — 고유명사·숫자·영어를 정확히 받아씁니다. 없으면 비워두면 음성으로 대본을 만들어 드립니다.'
   scriptArea.addEventListener('input', () => {
     state.scriptText = scriptArea.value
   })
@@ -104,6 +104,20 @@ export function renderLongformCaptionsTab(container, deps = {}) {
   const scriptField = field('대본 (선택)', scriptArea)
   scriptField.append(scriptBtn)
   root.append(scriptField)
+
+  // 대본이 없으면 음성에서 만들어 준다 — 이 체크가 그 스위치다.
+  const makeScript = el('input')
+  makeScript.type = 'checkbox'
+  makeScript.checked = true
+  const polishScript = el('input')
+  polishScript.type = 'checkbox'
+  const makeLabel = el('label', 'longform-check')
+  makeLabel.append(makeScript, el('span', null, '음성으로 대본 파일도 만들기'))
+  const polishLabel = el('label', 'longform-check')
+  polishLabel.append(polishScript, el('span', null, 'AI로 대본 다듬기 (군더더기·오타 정리)'))
+  const checks = el('div', 'longform-checks')
+  checks.append(makeLabel, polishLabel)
+  root.append(checks)
 
   // ── 옵션 ──
   const modelSelect = el('select', 'longform-model')
@@ -201,10 +215,12 @@ export function renderLongformCaptionsTab(container, deps = {}) {
     }
     result.append(el('h3', null, '완성됐습니다'))
     const files = el('ul', 'longform-files')
-    for (const [label, path] of [
+    const rows = [
       ['정렬 자막', data.files.aligned],
       ['공백메움 자막', data.files.filled],
-    ]) {
+    ]
+    if (data.scriptFile) rows.push([data.scriptFile.polished ? '대본 (AI 다듬음)' : '대본', data.scriptFile.path])
+    for (const [label, path] of rows) {
       files.append(el('li', null, `${label}: ${path}`))
     }
     result.append(files)
@@ -253,6 +269,8 @@ export function renderLongformCaptionsTab(container, deps = {}) {
           method,
           apiKey,
           model: modelSelect.value,
+          makeScript: makeScript.checked,
+          polishScript: polishScript.checked,
           language: langInput.value.trim() || 'ko',
           minChars: Number(minInput.value) || 18,
           maxChars: Number(maxInput.value) || 44,

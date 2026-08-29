@@ -35,7 +35,7 @@ test('롱폼 자막 탭: 파일 넣기 전에는 실행이 잠겨 있다', async
   await expect(tab.locator('.longform-steps')).toBeHidden()
 
   // 대본은 선택 사항이고, 정확도에 도움이 된다고 안내한다
-  await expect(tab.locator('.longform-script')).toHaveAttribute('placeholder', /없어도 됩니다/)
+  await expect(tab.locator('.longform-script')).toHaveAttribute('placeholder', /대본이 있으면 붙여넣으세요/)
 })
 
 test('롱폼 자막 탭: 세부 설정에 모델·엔진·길이 기준이 있다', async ({ page }) => {
@@ -57,4 +57,19 @@ test('롱폼 자막 탭: 세부 설정에 모델·엔진·길이 기준이 있�
 
   await tab.locator('.longform-engine').selectOption('api-claude')
   await expect(tab.locator('.longform-engine')).toHaveValue('api-claude')
+})
+
+test('롱폼 자막 탭: 대본이 없으면 음성으로 만들어 준다는 옵션이 켜져 있다', async ({ page }) => {
+  await page.goto(baseUrl)
+  await page.getByRole('button', { name: '롱폼 자막' }).click()
+  const tab = page.locator('.longform-tab')
+
+  const checks = tab.locator('.longform-check input')
+  await expect(checks).toHaveCount(2)
+  // 대본 만들기는 기본 켜짐, AI 다듬기는 기본 꺼짐(추가 비용이 드는 단계다)
+  await expect(checks.first()).toBeChecked()
+  await expect(checks.last()).not.toBeChecked()
+
+  await expect(tab.locator('.longform-checks')).toContainText('음성으로 대본 파일도 만들기')
+  await expect(tab.locator('.longform-script')).toHaveAttribute('placeholder', /대본을 만들어 드립니다/)
 })

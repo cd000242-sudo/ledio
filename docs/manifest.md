@@ -37,7 +37,7 @@
 | 소스 짜집기(AI 문장↔장면 매칭) | ✅ 완성 | `handleSourceRemix`, `src/…/source-remix` |
 | 무음 컷·타임라인 파형 | ✅ 완성 | `handleSilenceAnalyze`, `app/app.js` |
 | 자동 업데이트(GitHub 릴리즈) | ✅ 완성 | `electron/main.mjs` |
-| **롱폼 자막(WhisperX → 보정 → 재편성 → 공백메움 → 검수)** | ✅ 완성 | `app/longform-captions.js`, `src/captions/whisperx.ts`, `src/subtitles/` |
+| **롱폼 자막(WhisperX → 보정 → 재편성 → 공백메움 → 검수 → 대본 생성)** | ✅ 완성 | `app/longform-captions.js`, `src/captions/whisperx.ts`, `src/subtitles/` |
 | **앱 조종 비서(클로드코드 에이전트)** | ✅ 완성·배포 v0.3.0 | `scripts/mcp/`, `scripts/server/assistant-runtime.mjs`, `app/assistant.js` |
 | 낭독 속도 개선 | 📋 플랜만 | `docs/tts-speed-plan.md` |
 | 블로그 → 영상 파이프라인 | 📋 플랜만 | `docs/blog-to-video-plan.md` |

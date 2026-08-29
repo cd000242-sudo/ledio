@@ -14,6 +14,7 @@ export function outputPaths(mediaPath) {
   return {
     aligned: join(dir, `${stem}_정렬.srt`),
     filled: join(dir, `${stem}_정렬_공백메움.srt`),
+    script: join(dir, `${stem}_대본.txt`),
   }
 }
 
@@ -68,4 +69,31 @@ export async function buildLongformOutputs(cues, mediaPath, deps, options = {}) 
       filled: { ...filledAudit, summary: subtitles.summarizeAudit(filledAudit) },
     },
   }
+}
+
+/**
+ * 음성에서 읽을 수 있는 대본을 만든다 — 대본이 없는 영상에서 쓴다.
+ * 다듬기(선택)는 표기만 고치고, 분량이 크게 달라지면 원본을 지킨다.
+ * @param {object} deps `{ script: dist/subtitles/script 모듈, writeFile, askModel? }`
+ */
+export async function buildScriptFile(cues, mediaPath, deps, options = {}) {
+  const { script: scriptModule, writeFile, askModel } = deps
+  const raw = scriptModule.cuesToScript(cues, { paragraphGapMs: options.paragraphGapMs ?? 1200 })
+  if (!raw) return null
+
+  let text = raw
+  let polished = false
+  if (options.polish && askModel) {
+    try {
+      const response = await askModel(scriptModule.buildScriptPolishPrompt(raw))
+      text = scriptModule.acceptPolishedScript(raw, response)
+      polished = text !== raw
+    } catch {
+      // 다듬기 실패는 치명적이지 않다 — 받아쓴 대본을 그대로 저장한다.
+    }
+  }
+
+  const path = outputPaths(mediaPath).script
+  await writeFile(path, text, 'utf8')
+  return { path, chars: [...text].length, polished }
 }

@@ -1,10 +1,11 @@
 import { describe, expect, it, vi } from 'vitest'
-import { buildLongformOutputs, correctWithScript, outputPaths } from './longform-captions.mjs'
+import { buildLongformOutputs, buildScriptFile, correctWithScript, outputPaths } from './longform-captions.mjs'
 import { auditSubtitles, summarizeAudit } from '../../dist/subtitles/audit.js'
 import { fillGaps } from '../../dist/subtitles/gaps.js'
 import { reformatSubtitles } from '../../dist/subtitles/reformat.js'
 import { parseSrt, serializeSrt } from '../../dist/subtitles/srt.js'
 import * as correct from '../../dist/subtitles/correct.js'
+import * as scriptModule from '../../dist/subtitles/script.js'
 
 const subtitles = { reformatSubtitles, fillGaps, serializeSrt, auditSubtitles, summarizeAudit }
 
@@ -101,5 +102,55 @@ describe('최종 산출물', () => {
     // 앞 자막의 끝이 다음 시작까지 늘어난다
     expect(filledCues[0].endMs).toBe(filledCues[1].startMs)
     expect(alignedCues[0].endMs).toBeLessThan(alignedCues[1].startMs)
+  })
+})
+
+describe('음성으로 대본 만들기', () => {
+  const cues = [
+    { startMs: 0, endMs: 2000, text: '안녕하세요 쿠키입니다.' },
+    { startMs: 2100, endMs: 4000, text: '오늘은 자막 이야기를 합니다.' },
+    { startMs: 6000, endMs: 8000, text: '먼저 받아쓰기부터 보겠습니다.' },
+  ]
+
+  it('원본 옆에 대본 파일을 쓰고 문단을 나눈다', async () => {
+    const written = new Map()
+    const result = await buildScriptFile(cues, 'C:/영상/lesson.mp4', {
+      script: scriptModule,
+      writeFile: async (path, text) => written.set(path, text),
+    })
+    expect(result.path.endsWith('lesson_대본.txt')).toBe(true)
+    expect(written.get(result.path)).toContain('\n\n')
+    expect(result.polished).toBe(false)
+  })
+
+  it('다듬기를 켜면 모델을 부르고, 요약해버리면 원본을 지킨다', async () => {
+    const written = new Map()
+    const writeFile = async (path, text) => written.set(path, text)
+
+    const good = await buildScriptFile(cues, 'C:/영상/a.mp4', {
+      script: scriptModule,
+      writeFile,
+      // 실제 다듬기처럼 표기만 손본 결과(분량은 비슷하다)
+      askModel: async () => '안녕하세요, 쿠키입니다. 오늘은 자막 이야기를 해보겠습니다.\n\n먼저 받아쓰기부터 보시죠.',
+    }, { polish: true })
+    expect(good.polished).toBe(true)
+
+    const summarized = await buildScriptFile(cues, 'C:/영상/b.mp4', {
+      script: scriptModule,
+      writeFile,
+      askModel: async () => '요약: 자막 이야기',
+    }, { polish: true })
+    expect(summarized.polished).toBe(false)
+  })
+
+  it('다듬기가 실패해도 받아쓴 대본은 저장한다', async () => {
+    const written = new Map()
+    const result = await buildScriptFile(cues, 'C:/영상/c.mp4', {
+      script: scriptModule,
+      writeFile: async (path, text) => written.set(path, text),
+      askModel: async () => { throw new Error('모델 실패') },
+    }, { polish: true })
+    expect(written.has(result.path)).toBe(true)
+    expect(result.polished).toBe(false)
   })
 })

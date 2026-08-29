@@ -1,7 +1,7 @@
 /* global AbortSignal, Buffer, URL, fetch, process, setTimeout, clearTimeout */
 import { createReadStream, existsSync } from 'node:fs'
 import { createAssistantRuntime } from './server/assistant-runtime.mjs'
-import { buildLongformOutputs, correctWithScript } from './server/longform-captions.mjs'
+import { buildLongformOutputs, buildScriptFile, correctWithScript } from './server/longform-captions.mjs'
 import {
   COHERENCE_RULES,
   coupangViralPrompt,
@@ -1386,12 +1386,13 @@ async function handleAssistantApprove(req, res) {
 
 /** 순수 변환 모듈은 빌드 산출물(dist)에서 가져온다 — 로직을 서버에 복제하지 않는다. */
 async function loadSubtitleModules() {
-  const [srt, reformat, gaps, audit, correct] = await Promise.all([
+  const [srt, reformat, gaps, audit, correct, script] = await Promise.all([
     import('../dist/subtitles/srt.js'),
     import('../dist/subtitles/reformat.js'),
     import('../dist/subtitles/gaps.js'),
     import('../dist/subtitles/audit.js'),
     import('../dist/subtitles/correct.js'),
+    import('../dist/subtitles/script.js'),
   ])
   return {
     subtitles: {
@@ -1402,6 +1403,7 @@ async function loadSubtitleModules() {
       summarizeAudit: audit.summarizeAudit,
     },
     correct,
+    script,
   }
 }
 
@@ -1433,15 +1435,14 @@ async function handleLongformCaptions(req, res, workspaceRoot, commandRunner) {
     return
   }
 
-  const { subtitles, correct } = await loadSubtitleModules()
+  const { subtitles, correct, script: scriptModule } = await loadSubtitleModules()
   let cues = sttReport.cues
   let correction = null
 
   // ② 대본 대조 보정 — 대본이 있을 때만. 시각은 건드리지 않고 텍스트만 고친다.
   if (script) {
-    const method = String(body.method ?? 'agent-claude')
-    const apiKey = String(body.apiKey ?? '').trim()
-    const askModel = (prompt) => generateWithMethod(method, apiKey, prompt, false, true)
+    const askModel = (prompt) =>
+      generateWithMethod(String(body.method ?? 'agent-claude'), String(body.apiKey ?? '').trim(), prompt, false, true)
     correction = await correctWithScript(cues, script, { askModel, correct })
     cues = correction.cues
   }
@@ -1452,11 +1453,24 @@ async function handleLongformCaptions(req, res, workspaceRoot, commandRunner) {
     maxChars: Number(body.maxChars) || 44,
   })
 
+  // 대본이 없던 영상이면 받아쓴 내용으로 대본 파일을 만들어 준다.
+  const method = String(body.method ?? 'agent-claude')
+  const apiKey = String(body.apiKey ?? '').trim()
+  const wantsScript = body.makeScript !== false
+  const scriptFile = wantsScript
+    ? await buildScriptFile(cues, mediaPath, {
+        script: scriptModule,
+        writeFile,
+        askModel: (prompt) => generateWithMethod(method, apiKey, prompt, false, true),
+      }, { polish: body.polishScript === true })
+    : null
+
   sendJson(res, 200, {
     ok: true,
     mediaPath,
     sttCueCount: sttReport.cues.length,
     correction: correction ? { batches: correction.batches, failedBatches: correction.failedBatches } : null,
+    scriptFile,
     ...result,
   })
 }
