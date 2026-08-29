@@ -26,6 +26,18 @@ import { renderProductWizardTab } from './product-wizard.js';
 import { getSettings, renderSettingsTab } from './settings.js';
 import { mountAssistant } from './assistant.js';
 import { renderLongformCaptionsTab } from './longform-captions.js';
+import {
+  clean,
+  formatTags,
+  intValue,
+  isValidUrl,
+  numberValue,
+  pad2,
+  parseTags,
+  safeFileName,
+  trimLine,
+  unique,
+} from './edit/format.js';
 
 const platformLabels = {
   youtube_shorts: '유튜브 쇼츠',
@@ -436,70 +448,6 @@ function byId(id) {
   const element = document.getElementById(id);
   if (!element) throw new Error(`화면 요소를 찾을 수 없습니다: ${id}`);
   return element;
-}
-
-function clean(value) {
-  return String(value ?? '').trim();
-}
-
-function numberValue(value) {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : Number.NaN;
-}
-
-function intValue(value, fallback = 1) {
-  const parsed = Number.parseInt(String(value), 10);
-  return Number.isFinite(parsed) ? parsed : fallback;
-}
-
-function unique(values) {
-  return Array.from(new Set(values));
-}
-
-function isValidUrl(value) {
-  try {
-    const url = new URL(clean(value));
-    return url.protocol === 'http:' || url.protocol === 'https:';
-  } catch {
-    return false;
-  }
-}
-
-function parseTags(value) {
-  if (Array.isArray(value)) return value.map((tag) => clean(tag).replace(/^#/, '')).filter(Boolean);
-  return String(value ?? '')
-    .split(/[,\s]+/)
-    .map((tag) => clean(tag).replace(/^#/, ''))
-    .filter(Boolean);
-}
-
-function formatTags(tags) {
-  return parseTags(tags)
-    .map((tag) => `#${tag}`)
-    .join(' ');
-}
-
-function trimLine(value, maxLength) {
-  const text = clean(value).replace(/\s+/g, ' ');
-  if (text.length <= maxLength) return text;
-  return `${text.slice(0, Math.max(0, maxLength - 1)).trim()}…`;
-}
-
-function pad2(value) {
-  return String(value).padStart(2, '0');
-}
-
-function safeFileName(value, fallback = 'media') {
-  const withoutControlChars = Array.from(String(value ?? '')).filter((char) => {
-    const code = char.codePointAt(0) ?? 0;
-    return code >= 32 && code !== 127;
-  });
-  const cleaned = withoutControlChars
-    .join('')
-    .replace(/[<>:"/\\|?*]+/g, '-')
-    .replace(/\s+/g, ' ')
-    .trim();
-  return cleaned.replace(/^\.+/, '').slice(0, 120) || fallback;
 }
 
 function nextRole(index) {
