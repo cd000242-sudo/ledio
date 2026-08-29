@@ -1,6 +1,7 @@
 /* global AbortSignal, Buffer, URL, fetch, process, setTimeout, clearTimeout */
 import { createReadStream, existsSync } from 'node:fs'
 import { createAssistantRuntime } from './server/assistant-runtime.mjs'
+import { createInstaller, isEngineInstalled } from './server/stt-engine.mjs'
 import {
   buildBurnSrt,
   proofreadCues,
@@ -1412,6 +1413,28 @@ async function handleAssistantApprove(req, res) {
   const approved = body.approved === true
   const settled = settleApproval(id, approved, approved ? null : '사용자가 취소했습니다.')
   sendJson(res, settled ? 200 : 404, { ok: settled, ...(settled ? {} : { error: '이미 끝난 승인 요청입니다.' }) })
+}
+
+// ── 롱폼 자막 엔진(WhisperX) 설치 ──
+
+/** 설치는 한 번에 하나만. 워크스페이스가 바뀔 일이 없으므로 모듈 수준에 둔다. */
+let sttInstaller = null
+
+function getInstaller(workspaceRoot) {
+  if (!sttInstaller) sttInstaller = createInstaller({ workspaceRoot })
+  return sttInstaller
+}
+
+async function handleSttEngineStatus(res, workspaceRoot) {
+  const installer = getInstaller(workspaceRoot)
+  sendJson(res, 200, { ok: true, ...installer.status(), installed: isEngineInstalled(workspaceRoot) })
+}
+
+async function handleSttEngineInstall(req, res, workspaceRoot) {
+  const body = await readJsonBody(req)
+  const installer = getInstaller(workspaceRoot)
+  const result = await installer.start({ cuda: body.cuda !== false })
+  sendJson(res, 200, { ok: true, ...result, ...installer.status() })
 }
 
 // ── 롱폼 자막: 영상/음성 하나 → 정렬 SRT + 공백메움 SRT + 검수 리포트 ──
@@ -3454,6 +3477,16 @@ export function createShortsFactoryServer(options = {}) {
 
       if (pathname.startsWith('/api/scripts/') && req.method === 'DELETE') {
         await handleScriptDelete(pathname, res, workspaceRoot)
+        return
+      }
+
+      if (pathname === '/api/stt-engine/status' && req.method === 'GET') {
+        await handleSttEngineStatus(res, workspaceRoot)
+        return
+      }
+
+      if (pathname === '/api/stt-engine/install' && req.method === 'POST') {
+        await handleSttEngineInstall(req, res, workspaceRoot)
         return
       }
 

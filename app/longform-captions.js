@@ -79,6 +79,8 @@ const state = {
   fontSize: 20,
   position: 'bottom',
   busy: false,
+  sttEngine: null,
+  engineBusy: false,
   activeStep: null,
   finished: false,
   status: '',
@@ -132,6 +134,42 @@ function markStep(id) {
 function addNote(text) {
   if (!state.notes.includes(text)) state.notes.push(text)
   repaint()
+}
+
+/** 롱폼 자막 엔진(WhisperX) 설치 상태를 확인한다. 없으면 배너로 안내한다. */
+async function refreshEngine() {
+  try {
+    const response = await fetch('/api/stt-engine/status')
+    state.sttEngine = await response.json()
+  } catch {
+    state.sttEngine = null
+  }
+  repaint()
+}
+
+async function installEngine(deps) {
+  if (state.engineBusy) return
+  state.engineBusy = true
+  repaint()
+  try {
+    await fetch('/api/stt-engine/install', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ cuda: true }),
+    })
+    // 설치는 오래 걸린다 — 끝날 때까지 상태를 주기적으로 확인한다.
+    const poll = async () => {
+      await refreshEngine()
+      if (state.sttEngine?.running) deps.setTimer?.(poll, 3000)
+      else state.engineBusy = false
+      repaint()
+    }
+    await poll()
+  } catch (error) {
+    addNote(`설치 요청 실패: ${error.message}`)
+    state.engineBusy = false
+    repaint()
+  }
 }
 
 /**
@@ -217,6 +255,7 @@ export function renderLongformCaptionsTab(container, deps = {}) {
   }
   repaint = paint
   paint()
+  if (state.sttEngine === null) refreshEngine()
   return { state }
 }
 
@@ -229,6 +268,27 @@ function buildTab(deps) {
       '영상 하나만 넣으면 끝납니다 — 받아쓰기부터 자막 파일, 대본, 자막 넣은 완성 영상까지 한 번에 만듭니다.',
     ),
   )
+
+  // ── 엔진 안내 — 설치가 안 돼 있으면 여기서 바로 깐다 ──
+  const engine = state.sttEngine
+  if (engine && !engine.installed) {
+    const notice = el('div', 'longform-engine-notice')
+    notice.append(
+      el('strong', null, '받아쓰기 엔진(WhisperX)이 아직 없습니다'),
+      el('span', null, '한 번만 설치하면 됩니다. 용량이 커서 5~15분 정도 걸립니다(인터넷 필요).'),
+    )
+    const installBtn = el('button', 'primary-button', engine.running ? '설치 중…' : '엔진 설치')
+    installBtn.type = 'button'
+    installBtn.disabled = Boolean(engine.running) || state.engineBusy
+    installBtn.addEventListener('click', () => installEngine(deps))
+    notice.append(installBtn)
+    if (engine.step) notice.append(el('span', 'longform-note', engine.step))
+    if (engine.error) notice.append(el('p', 'longform-error', engine.error))
+    if (engine.running && engine.log?.length) {
+      notice.append(el('pre', 'longform-install-log', engine.log.slice(-6).join(String.fromCharCode(10))))
+    }
+    root.append(notice)
+  }
 
   // ── 입력 파일: 클릭 또는 드래그&드롭 ──
   const drop = el('div', 'longform-drop')

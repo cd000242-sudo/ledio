@@ -3334,3 +3334,23 @@ body[data-mode='simple'] #workbenchToggleBtn {
   color: var(--ink);
   cursor: pointer;
 }
+
+.longform-engine-notice {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--copper);
+  background: var(--copper-soft);
+  font-size: 13px;
+}
+
+.longform-install-log {
+  margin: 0;
+  max-height: 120px;
+  overflow: auto;
+  white-space: pre-wrap;
+  font-size: 11px;
+  color: var(--muted);
+}
