@@ -32,6 +32,15 @@ export function sanitizeEnv(sourceEnv, { toolTimeoutMs = 900000 } = {}) {
   return { ...env, MCP_TIMEOUT: String(toolTimeoutMs), MCP_TOOL_TIMEOUT: String(toolTimeoutMs) }
 }
 
+/**
+ * MCP 서버는 이 프로세스와 같은 실행파일로 띄운다.
+ * 패키지된 앱에서 process.execPath는 **Electron 실행파일**이라, 그대로 두면 GUI를 띄우려 하고 MCP가 안 뜬다.
+ * Electron 안에서 돌 때만 ELECTRON_RUN_AS_NODE=1을 줘서 node로 실행시킨다(개발 서버는 이미 node라 필요 없다).
+ */
+function nodeModeEnv() {
+  return process.versions.electron ? { ELECTRON_RUN_AS_NODE: '1' } : {}
+}
+
 /** MCP 설정 — 앱 서버 주소와 기본 엔진·키를 MCP 서버에만 넘긴다(에이전트는 못 본다). */
 export function buildMcpConfig({ apiBase, serverScript, method, apiKey, toolTimeoutMs = 900000 }) {
   return {
@@ -45,7 +54,7 @@ export function buildMcpConfig({ apiBase, serverScript, method, apiKey, toolTime
           ...(apiKey ? { SHORTS_API_KEY: apiKey } : {}),
           SHORTS_TOOL_TIMEOUT_MS: String(toolTimeoutMs),
           SHORTS_APPROVAL: '1',
-          ELECTRON_RUN_AS_NODE: '',
+          ...nodeModeEnv(),
         },
       },
     },

@@ -1,4 +1,4 @@
-/* global setTimeout */
+/* global process, setTimeout */
 import { EventEmitter } from 'node:events'
 import { describe, expect, it, vi } from 'vitest'
 import {
@@ -44,7 +44,9 @@ describe('MCP 설정', () => {
     expect(server.args).toEqual(['C:/app/scripts/mcp/shorts-mcp.mjs'])
     expect(server.env.SHORTS_API_BASE).toBe('http://127.0.0.1:5000')
     expect(server.env.SHORTS_API_KEY).toBe('sk-secret')
-    expect(server.env.ELECTRON_RUN_AS_NODE).toBe('')
+    // 개발(node)에서는 이 변수를 넣지 않는다. Electron 안에서만 '1'로 넣어 MCP를 node 모드로 띄운다.
+    expect(server.env.ELECTRON_RUN_AS_NODE).toBe(process.versions.electron ? '1' : undefined)
+    expect(server.env.SHORTS_APPROVAL).toBe('1')
   })
 
   it('키가 없으면 키 항목 자체를 넣지 않는다', () => {
