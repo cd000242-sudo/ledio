@@ -1,7 +1,7 @@
 # 쇼츠팩토리 프로젝트 매니페스트
 
 > 이 저장소의 **단일 진실 문서**. 새 세션·새 사람은 이것부터 읽는다.
-> 마지막 갱신: 2026-08-29
+> 마지막 갱신: 2026-08-29 (v0.3.0 배포)
 >
 > 규칙: 기능을 완성하거나 방향을 바꾸면 **이 문서를 먼저 고친다**. 세부 설계는 아래 "문서 지도"의 개별 문서에 두고, 여기에는 상태와 결정만 남긴다.
 
@@ -37,7 +37,7 @@
 | 소스 짜집기(AI 문장↔장면 매칭) | ✅ 완성 | `handleSourceRemix`, `src/…/source-remix` |
 | 무음 컷·타임라인 파형 | ✅ 완성 | `handleSilenceAnalyze`, `app/app.js` |
 | 자동 업데이트(GitHub 릴리즈) | ✅ 완성 | `electron/main.mjs` |
-| **앱 조종 비서(클로드코드 에이전트)** | ✅ 완성 (2026-08-29) | `scripts/mcp/`, `scripts/server/assistant-runtime.mjs`, `app/assistant.js` |
+| **앱 조종 비서(클로드코드 에이전트)** | ✅ 완성·배포 v0.3.0 | `scripts/mcp/`, `scripts/server/assistant-runtime.mjs`, `app/assistant.js` |
 | 낭독 속도 개선 | 📋 플랜만 | `docs/tts-speed-plan.md` |
 | 블로그 → 영상 파이프라인 | 📋 플랜만 | `docs/blog-to-video-plan.md` |
 | 쇼핑쇼츠 비서화(잡 폴더 규약) | 📋 플랜만 | `docs/shopping-shorts-assistant-plan.md` |
@@ -53,6 +53,7 @@
 
 | 날짜 | 결정 | 이유 |
 |---|---|---|
+| 2026-08-29 | 패키지된 앱에서는 MCP 자식에 `ELECTRON_RUN_AS_NODE=1`을 준다 | `process.execPath`가 Electron 실행파일이라 그대로면 GUI를 띄운다. 릴리즈 빌드로 실제 확인하기 전엔 못 잡는 종류의 버그 |
 | 2026-08-29 | 비서는 **Claude Code CLI를 spawn**하고 Agent SDK를 쓰지 않는다 | 사용자 구독을 그대로 쓰므로 추가 API 비용 0원 |
 | 2026-08-29 | 앱 기능은 **MCP 도구**로 노출하고, MCP 서버는 기존 `/api/*`를 호출한다 | 파이프라인 로직 중복 0. 서버가 이미 모든 기능의 단일 창구다 |
 | 2026-08-29 | 에이전트에게 `Bash`·`Read`·`Write`·`Edit`를 주지 않는다 | 파일시스템 접근을 열면 경로 감옥·승인 게이트가 전부 무의미해진다 |
@@ -110,6 +111,7 @@ npx playwright test  # e2e 5개
 npm run verify    # 전체 게이트(빌드·샘플·렌더 스모크·릴리즈 번들까지)
 ```
 
-**릴리즈**: `npm run release:installer` → GitHub 릴리즈 업로드. 자동 업데이트가 `latest.yml`을 본다.
+**릴리즈**: 버전 올리기 → `npm run release:installer` → **win-unpacked 실행파일로 실제 동작 확인** → 태그 푸시 → `gh release create`에 `.exe` + `.blockmap` + `latest.yml` 세 개 모두 업로드. 자동 업데이트가 `latest.yml`을 본다.
+최신: **v0.3.0** (2026-08-29).
 
 **주의**: 테스트가 무겁게 겹치면(예: playwright 직후 vitest) 낭독·자막 테스트가 5초 제한에 걸려 흔들린다. 부하 없는 상태에서 다시 돌려 확인할 것.
