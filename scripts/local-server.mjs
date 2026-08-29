@@ -6,6 +6,7 @@ import {
   buildLongformOutputs,
   buildScriptFile,
   correctWithScript,
+  tidyOutputs,
 } from './server/longform-captions.mjs'
 import {
   COHERENCE_RULES,
@@ -547,6 +548,18 @@ function normalizeCaptionProvider(value) {
   return value === 'mock' ? 'mock' : 'local-whisper'
 }
 
+/** STT 전용 venv의 파이썬 — 롱폼 자막 엔진(WhisperX)이 여기 설치된다. */
+function whisperxPython() {
+  for (const candidate of [
+    process.env.SF_WHISPERX_PYTHON,
+    join(process.cwd(), '.venv-stt', 'Scripts', 'python.exe'),
+    join(process.cwd(), '.venv-stt', 'bin', 'python'),
+  ]) {
+    if (candidate && existsSync(candidate)) return candidate
+  }
+  return null
+}
+
 function captionToolSpecs() {
   return [
     {
@@ -564,12 +577,23 @@ function captionToolSpecs() {
       installHint: 'FFmpeg 설치 후 PATH를 새로고침하거나 FFPROBE_PATH 환경변수로 ffprobe.exe 경로를 지정하세요.',
     },
     {
+      // 롱폼 자막 탭이 쓰는 엔진. 전용 venv(.venv-stt)에 설치한다.
+      id: 'whisperx',
+      label: '롱폼 자막 엔진(WhisperX)',
+      command: whisperxPython() ?? 'python',
+      args: ['-c', 'import whisperx'],
+      installHint:
+        '설치 안내: 저장소 폴더에서 py -3.13 -m venv .venv-stt → .venv-stt/Scripts/python -m pip install whisperx. ' +
+        'GPU를 쓰려면 CUDA용 torch도 함께 설치하세요.',
+    },
+    {
       id: 'local-whisper',
-      label: '로컬 Whisper',
+      label: '구버전 Whisper(선택)',
       command: findExecutable('whisper', 'WHISPER_BIN') || process.env.WHISPER_BIN || 'whisper',
       args: ['--help'],
       installHint:
-        'python -m pip install -U openai-whisper 실행 후 터미널/앱을 다시 열거나 WHISPER_BIN으로 whisper.exe 경로를 지정하세요.',
+        '없어도 됩니다 — 롱폼 자막은 WhisperX를 씁니다. 프로젝트 자동자막(구버전)에만 필요합니다. ' +
+        '필요하면 python -m pip install -U openai-whisper.',
     },
     {
       id: 'python',
@@ -684,6 +708,8 @@ async function handleCaptionStatus(res) {
     ok: true,
     tools,
     localWhisperReady: hasTool('ffmpeg') && hasTool('local-whisper'),
+    // 롱폼 자막 탭이 실제로 필요로 하는 조합
+    longformReady: hasTool('ffmpeg') && hasTool('whisperx'),
   })
 }
 
@@ -1490,9 +1516,15 @@ async function handleLongformCaptions(req, res, workspaceRoot, commandRunner) {
       }, { polish: body.polishScript === true })
     : null
 
+  // 중간 파일 정리 — 영상까지 만들었을 때만.
+  const keep = ['video', 'script', 'all'].includes(String(body.keep)) ? String(body.keep) : 'script'
+  const tidied = await tidyOutputs(mediaPath, keep, Boolean(burned?.path))
+
   sendJson(res, 200, {
     ok: true,
     mediaPath,
+    keep,
+    removedFiles: tidied.removed.length,
     sttCueCount: sttReport.cues.length,
     correction: correction ? { batches: correction.batches, failedBatches: correction.failedBatches } : null,
     scriptFile,

@@ -6,6 +6,7 @@
  * 시각(타임스탬프)은 STT 결과에서만 오고, 어떤 단계에서도 새로 만들지 않는다.
  */
 import { basename, dirname, extname, join } from 'node:path'
+import { rm } from 'node:fs/promises'
 
 /** 결과 파일 경로 — 원본 옆에 두고 기존 파일은 절대 덮어쓰지 않는다(노션 규칙). */
 export function outputPaths(mediaPath) {
@@ -111,4 +112,34 @@ export async function buildBurnSrt(cues, mediaPath, deps, options = {}) {
   const path = outputPaths(mediaPath).burnSrt
   await writeFile(path, subtitles.serializeSrt(filled), 'utf8')
   return { path, cueCount: filled.length }
+}
+
+/**
+ * 결과물 정리 — 중간 파일이 원본 옆에 쌓이는 것을 막는다.
+ *
+ * 'video'  완성 영상만 남긴다(자막 파일·대본·임시 폴더 삭제)
+ * 'script' 완성 영상 + 대본 (기본)
+ * 'all'    전부 남긴다
+ *
+ * 영상을 만들지 못했으면 무엇도 지우지 않는다 — 유일한 결과물을 날리면 안 된다.
+ */
+export async function tidyOutputs(mediaPath, keep, madeVideo, deps = {}) {
+  const remove = deps.remove ?? ((path) => rm(path, { recursive: true, force: true }))
+  if (keep === 'all' || !madeVideo) return { removed: [] }
+
+  const paths = outputPaths(mediaPath)
+  const targets = [paths.aligned, paths.filled, paths.burnSrt]
+  if (keep === 'video') targets.push(paths.script)
+  targets.push(join(dirname(mediaPath), '.whisperx'))
+
+  const removed = []
+  for (const target of targets) {
+    try {
+      await remove(target)
+      removed.push(target)
+    } catch {
+      // 지우지 못해도 작업 자체는 성공이다 — 조용히 넘어간다.
+    }
+  }
+  return { removed }
 }

@@ -30,6 +30,12 @@ const ENGINE_OPTIONS = [
   { value: 'api-gemini', label: 'Gemini API 키' },
 ]
 
+const KEEP_OPTIONS = [
+  { value: 'script', label: '완성 영상 + 대본 (자막 파일은 정리)' },
+  { value: 'video', label: '완성 영상만 (나머지 전부 정리)' },
+  { value: 'all', label: '전부 남기기 (SRT·대본·임시파일)' },
+]
+
 const BURN_OPTIONS = [
   { value: 'burn', label: '영상에 자막 태워넣기 (어디서나 보임 · 재인코딩)' },
   { value: 'mux', label: '자막 트랙으로 넣기 (빠름 · 켜야 보임)' },
@@ -47,6 +53,7 @@ const state = {
   minChars: 18,
   maxChars: 44,
   burn: 'burn',
+  keep: 'script',
   makeScript: true,
   polishScript: false,
   busy: false,
@@ -137,6 +144,7 @@ async function runCaptions(deps) {
         apiKey,
         model: state.model,
         burn: state.burn,
+        keep: state.keep,
         makeScript: state.makeScript,
         polishScript: state.polishScript,
         language: state.language.trim() || 'ko',
@@ -266,7 +274,11 @@ function buildTab(deps) {
   burnSelect.addEventListener('change', () => {
     state.burn = burnSelect.value
   })
-  root.append(checks, field('완성 영상', burnSelect))
+  const keepSelect = select('longform-keep', KEEP_OPTIONS, state.keep)
+  keepSelect.addEventListener('change', () => {
+    state.keep = keepSelect.value
+  })
+  root.append(checks, field('완성 영상', burnSelect), field('결과물 정리', keepSelect))
 
   // ── 세부 설정 ──
   const modelSelect = select('longform-model', MODEL_OPTIONS, state.model)
@@ -369,6 +381,7 @@ function buildResult(data) {
   } else {
     stats.push('대본이 없어 보정은 건너뛰었습니다')
   }
+  if (data.removedFiles > 0) stats.push(`중간 파일 ${data.removedFiles}개 정리`)
   result.append(el('p', 'longform-stats', stats.join(' · ')))
   if (data.burned?.error) result.append(el('p', 'longform-error', `자막 넣기 실패: ${data.burned.error}`))
 

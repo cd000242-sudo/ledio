@@ -250,8 +250,9 @@ export function createAssistantPanel() {
     }
     if (event.type === 'done') {
       const seconds = Math.round((event.durationMs ?? 0) / 1000)
-      const cost = Number(event.costUsd ?? 0)
-      status.textContent = cost > 0 ? `완료 · ${seconds}초 · $${cost.toFixed(3)}` : `완료 · ${seconds}초`
+      // 비서는 설치된 Claude Code 구독으로 도므로 실제 청구액이 아니다.
+      // CLI가 주는 금액은 API 정가 환산값이라 오해를 부른다 — 화면에는 걸린 시간만 보여준다.
+      status.textContent = `완료 · ${seconds}초`
       if (event.sessionId) sessionId = event.sessionId
       if (currentTextNode?.textContent) recordBubble('agent', currentTextNode.textContent)
     }

@@ -1,5 +1,11 @@
 import { describe, expect, it, vi } from 'vitest'
-import { buildLongformOutputs, buildScriptFile, correctWithScript, outputPaths } from './longform-captions.mjs'
+import {
+  buildLongformOutputs,
+  buildScriptFile,
+  correctWithScript,
+  outputPaths,
+  tidyOutputs,
+} from './longform-captions.mjs'
 import { auditSubtitles, summarizeAudit } from '../../dist/subtitles/audit.js'
 import { fillGaps } from '../../dist/subtitles/gaps.js'
 import { reformatSubtitles } from '../../dist/subtitles/reformat.js'
@@ -152,5 +158,41 @@ describe('음성으로 대본 만들기', () => {
     }, { polish: true })
     expect(written.has(result.path)).toBe(true)
     expect(result.polished).toBe(false)
+  })
+})
+
+describe('결과물 정리', () => {
+  const collect = () => {
+    const removed = []
+    return { removed, remove: async (path) => removed.push(path) }
+  }
+
+  it('영상만 남기기 — 자막·대본·임시폴더를 지운다', async () => {
+    const { removed, remove } = collect()
+    await tidyOutputs('C:/영상/a.mp4', 'video', true, { remove })
+    expect(removed.some((path) => path.endsWith('a_정렬.srt'))).toBe(true)
+    expect(removed.some((path) => path.endsWith('a_정렬_공백메움.srt'))).toBe(true)
+    expect(removed.some((path) => path.endsWith('a_영상자막.srt'))).toBe(true)
+    expect(removed.some((path) => path.endsWith('a_대본.txt'))).toBe(true)
+    expect(removed.some((path) => path.endsWith('.whisperx'))).toBe(true)
+  })
+
+  it('기본값은 대본을 남긴다', async () => {
+    const { removed, remove } = collect()
+    await tidyOutputs('C:/영상/a.mp4', 'script', true, { remove })
+    expect(removed.some((path) => path.endsWith('a_대본.txt'))).toBe(false)
+    expect(removed.some((path) => path.endsWith('a_정렬.srt'))).toBe(true)
+  })
+
+  it('전부 남기기면 아무것도 지우지 않는다', async () => {
+    const { removed, remove } = collect()
+    await tidyOutputs('C:/영상/a.mp4', 'all', true, { remove })
+    expect(removed).toHaveLength(0)
+  })
+
+  it('영상을 못 만들었으면 아무것도 지우지 않는다 — 유일한 결과물을 날리면 안 된다', async () => {
+    const { removed, remove } = collect()
+    await tidyOutputs('C:/영상/a.mp4', 'video', false, { remove })
+    expect(removed).toHaveLength(0)
   })
 })
