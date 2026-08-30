@@ -114,7 +114,9 @@ program
   .argument('<mediaPath>', 'video or audio file path')
   .option('--model <model>', 'WhisperX model name', 'large-v3')
   .option('--language <language>', 'spoken language code, or auto', 'ko')
-  .option('--compute-type <type>', 'ctranslate2 compute type', 'float16')
+  // 기본값을 두지 않는다. 두면 GPU 유무를 보고 고르는 자동 판단을 덮어써서
+  // 8GB 카드에서 긴 영상이 메모리 부족으로 죽는다(실측으로 확인한 사고).
+  .option('--compute-type <type>', 'ctranslate2 compute type (비우면 자동)')
   .option('--out-dir <dir>', 'directory for WhisperX intermediate output')
   .option('--initial-prompt <text>', 'script hint that improves proper nouns and numbers')
   .option('--json', 'print JSON report')

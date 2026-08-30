@@ -1522,7 +1522,7 @@ async function handleAutoEditMedia(url, res, req) {
 /** 타임라인에 그릴 파형 — 말 없는 구간이 납작하게 보여야 자를 곳이 눈에 띈다. */
 async function handleAutoEditPeaks(url, res) {
   const mediaPath = String(url.searchParams.get('mediaPath') ?? '').trim()
-  const buckets = Math.min(4000, Math.max(100, Number(url.searchParams.get('buckets')) || 1200))
+  const buckets = Math.min(60000, Math.max(100, Number(url.searchParams.get('buckets')) || 1200))
   if (!mediaPath || !existsSync(mediaPath)) {
     sendJson(res, 404, { ok: false, error: '영상을 찾을 수 없습니다.' })
     return

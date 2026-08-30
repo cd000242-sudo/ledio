@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  isOutOfMemory,
   progressPathFor,
   buildAlignArgs,
   buildAudioExtractArgs,
@@ -100,8 +101,10 @@ describe('WhisperX 결과 파싱', () => {
 })
 
 describe('실행 장치 결정', () => {
-  it('GPU가 있으면 cuda+float16, 없으면 cpu+int8로 물러선다', () => {
-    expect(resolveCompute(true)).toEqual({ device: 'cuda', computeType: 'float16' })
+  it('GPU가 있으면 cuda+int8_float16, 없으면 cpu+int8로 물러선다', () => {
+    // float16은 8GB 카드에서 21분 영상이 메모리 부족으로 죽고, 배치를 줄이면 5배 느리다(실측).
+    // int8_float16은 3분 음성 기준 155초 → 29초이고 받아쓴 내용도 같았다.
+    expect(resolveCompute(true)).toEqual({ device: 'cuda', computeType: 'int8_float16' })
     // CPU에서 float16을 쓰면 ctranslate2가 거부한다
     expect(resolveCompute(false)).toEqual({ device: 'cpu', computeType: 'int8' })
   })
@@ -155,5 +158,25 @@ describe('진행 상황 넘기기', () => {
     expect(buildTranscribeArgs({ scriptPath: 's.py', mediaPath: 'a.wav', segmentsJson: 'seg.json' })).not.toContain(
       '--progress',
     )
+  })
+})
+
+
+describe('정밀도 기본값', () => {
+  it('인자를 안 주면 자동 판단 값을 쓴다 — CLI에 기본값을 박아 두면 자동 판단이 무력해진다', () => {
+    const args = buildTranscribeArgs({ scriptPath: 's.py', mediaPath: 'a.wav', segmentsJson: 'seg.json' })
+    expect(args[args.indexOf('--compute-type') + 1]).toBe('int8_float16')
+  })
+})
+
+describe('메모리 부족 알아보기', () => {
+  it('CUDA 메모리 부족을 알아본다 — 배치를 줄여 다시 해봐야 한다', () => {
+    expect(isOutOfMemory('RuntimeError: CUDA failed with error out of memory')).toBe(true)
+    expect(isOutOfMemory('torch.OutOfMemoryError: CUDA out of memory')).toBe(true)
+  })
+
+  it('다른 오류는 다시 시도하지 않는다 — 같은 실패를 반복할 뿐이다', () => {
+    expect(isOutOfMemory('FileNotFoundError: no such file')).toBe(false)
+    expect(isOutOfMemory('')).toBe(false)
   })
 })

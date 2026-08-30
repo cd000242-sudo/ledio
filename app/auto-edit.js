@@ -8,6 +8,7 @@
  */
 
 import { ownsTab } from './tab-owner.js'
+import { durationText } from './duration-text.js'
 import { buildReview } from './auto-edit-review.js'
 
 const STRENGTHS = [
@@ -41,7 +42,7 @@ function el(tag, className, text) {
 }
 
 const fileNameOf = (path) => String(path).split(/[/\\]/).pop() || path
-const seconds = (ms) => `${Math.floor(ms / 1000 / 60)}분 ${Math.round((ms / 1000) % 60)}초`
+const seconds = durationText
 
 let repaint = () => {}
 let progressTimer = null
@@ -88,7 +89,11 @@ function watchProgress() {
 async function loadPeaks() {
   state.peaks = null
   try {
-    const response = await fetch(`/api/auto-edit/peaks?mediaPath=${encodeURIComponent(state.mediaPath)}`)
+    // 초당 20칸씩 받는다. 1200칸 고정이면 21분 영상에서 한 칸이 1초라 확대해도 파형이 안 보인다.
+    const buckets = Math.min(60000, Math.max(600, Math.round(((state.analysis?.totalMs ?? 0) / 1000) * 20)))
+    const response = await fetch(
+      `/api/auto-edit/peaks?mediaPath=${encodeURIComponent(state.mediaPath)}&buckets=${buckets}`,
+    )
     const data = await response.json()
     if (data.ok) {
       state.peaks = data.peaks

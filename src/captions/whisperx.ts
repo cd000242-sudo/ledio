@@ -52,13 +52,25 @@ export function findWhisperxPython(workspaceRoot: string = process.cwd()): strin
 }
 
 /**
- * GPU가 없으면 float16을 쓸 수 없다(ctranslate2가 거부한다).
- * CPU에서는 int8로 물러선다 — 느리지만 동작은 한다.
+ * 어떤 장치·정밀도로 돌릴지 정한다.
+ *
+ * GPU에서도 float16을 쓰지 않는다. 8GB 카드에서 21분 영상이 **메모리 부족으로 죽고**,
+ * 배치를 줄여 살리면 5배 느려진다(실측: 3분 음성에 155초 vs 29초).
+ * int8_float16은 메모리도 적고 받아쓴 내용도 같았다.
+ * GPU가 없으면 int8로 물러선다 — 느리지만 동작은 한다.
  */
 export function resolveCompute(hasCuda: boolean, requested?: string): { device: string; computeType: string } {
   if (requested) return { device: hasCuda ? 'cuda' : 'cpu', computeType: requested }
-  return hasCuda ? { device: 'cuda', computeType: 'float16' } : { device: 'cpu', computeType: 'int8' }
+  return hasCuda ? { device: 'cuda', computeType: 'int8_float16' } : { device: 'cpu', computeType: 'int8' }
 }
+
+/** 그래픽카드 메모리가 모자라 죽은 것인지 — 그렇다면 배치를 줄여 다시 해볼 만하다. */
+export function isOutOfMemory(message: string): boolean {
+  return /out of memory/i.test(String(message ?? ''))
+}
+
+/** 메모리가 모자랄 때 줄여 가며 다시 해볼 배치 크기. */
+const SMALLER_BATCHES = [4, 1]
 
 /** STT venv에서 CUDA를 쓸 수 있는지 확인한다(설치가 CPU 빌드일 수 있다). */
 export async function detectCuda(python: string): Promise<boolean> {
@@ -124,7 +136,7 @@ export function buildTranscribeArgs(options: PhaseArgOptions): string[] {
     '--device',
     options.device ?? 'cuda',
     '--compute-type',
-    options.computeType ?? 'float16',
+    options.computeType ?? 'int8_float16',
     '--batch-size',
     String(options.batchSize ?? 16),
   ]
@@ -261,7 +273,26 @@ export async function runWhisperx(
   }
 
   onProgress({ phase: 'transcribe', message: '음성을 받아쓰는 중' })
-  await run('transcribe', buildTranscribeArgs(phaseOptions))
+  try {
+    await run('transcribe', buildTranscribeArgs(phaseOptions))
+  } catch (err) {
+    // 약한 그래픽카드에서는 한 번에 처리하는 양이 많으면 메모리가 모자란다.
+    // 줄여서 다시 해본다 — 느려지지만 끝까지 간다.
+    if (!isOutOfMemory((err as Error).message)) throw err
+    let lastError = err
+    for (const batchSize of SMALLER_BATCHES) {
+      onProgress({ phase: 'transcribe', message: `메모리가 모자라 조금씩 나눠 다시 받아쓰는 중(${batchSize})` })
+      try {
+        await run('transcribe', buildTranscribeArgs({ ...phaseOptions, batchSize }))
+        lastError = null
+        break
+      } catch (retryError) {
+        if (!isOutOfMemory((retryError as Error).message)) throw retryError
+        lastError = retryError
+      }
+    }
+    if (lastError) throw lastError
+  }
 
   // 전사 프로세스가 완전히 끝난 뒤에 정렬을 띄운다 — 같이 올리면 GPU에서 충돌한다.
   onProgress({ phase: 'align', message: '단어 단위로 시간을 맞추는 중' })
