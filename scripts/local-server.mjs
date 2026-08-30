@@ -6,6 +6,12 @@ import { analyzeForAutoEdit, applySelectedCuts, readAutoEditProgress } from './s
 import { bucketPeaks, buildPeaksArgs } from './server/peaks.mjs'
 import { eraseSubtitles } from './server/subtitle-erase.mjs'
 import {
+  budgetArgs,
+  DEFAULT_BUDGET_USD,
+  describeAgentFailure,
+  resolveBudgetUsd,
+} from './server/usage-limit.mjs'
+import {
   buildBurnSrt,
   proofreadCues,
   buildLongformOutputs,
@@ -1127,7 +1133,9 @@ function runAgentCommand(binary, args, timeoutMs = 180000, stdinText = null) {
       if (code === 0) resolveRun(stdout.trim())
       else {
         const detail = [stderr, stdout].map((s) => s.trim()).filter(Boolean).join(' | ')
-        rejectRun(new Error(`에이전트 오류(${code}): ${detail.split('\n').slice(-4).join(' ').slice(0, 300) || '출력 없음'}`))
+        const summary = detail.split('\n').slice(-4).join(' ').slice(0, 300) || '출력 없음'
+        // 한도·예산 때문에 멈춘 것이라면 "앱이 고장났다"고 읽히지 않게 사용자 말로 바꾼다.
+        rejectRun(new Error(describeAgentFailure(detail, `에이전트 오류(${code}): ${summary}`)))
       }
     })
   })
@@ -1196,6 +1204,9 @@ async function generateWithMethod(method, apiKey, prompt, useResearch = false, f
     // 사실 기반 장르에서만 웹 검색을 허용한다(창작 장르는 검색이 시간만 잡아먹는다).
     const args = useResearch ? ['-p', '--allowedTools', 'WebSearch'] : ['-p']
     if (fastModel) args.push('--model', 'haiku')
+    // 이 경로는 사용자 구독 한도를 태운다. 자막 보정은 배치마다 다시 호출되므로
+    // 한 번의 폭주가 주간 한도를 통째로 먹지 않게 호출 단위 상한을 건다.
+    args.push(...budgetArgs(resolveBudgetUsd(process.env.SHORTS_AGENT_BUDGET_USD, DEFAULT_BUDGET_USD.call)))
     return runAgentCommand(binary, args, 420000, prompt)
   }
   if (method === 'agent-gemini') {

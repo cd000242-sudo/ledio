@@ -253,6 +253,16 @@ export function createAssistantPanel() {
       // 비서는 설치된 Claude Code 구독으로 도므로 실제 청구액이 아니다.
       // CLI가 주는 금액은 API 정가 환산값이라 오해를 부른다 — 화면에는 걸린 시간만 보여준다.
       status.textContent = `완료 · ${seconds}초`
+      // 한도로 멈춘 건 앱 고장이 아니다 — 기다려야 하는지, 모델만 바꾸면 되는지까지 알려준다.
+      if (event.limit) {
+        status.textContent = '한도 도달'
+        addNotice(
+          event.limit.switchable
+            ? `${event.limit.message} (환경설정 → 생성 방식에서 모델 변경)`
+            : event.limit.message,
+          'error',
+        )
+      }
       if (event.sessionId) sessionId = event.sessionId
       if (currentTextNode?.textContent) recordBubble('agent', currentTextNode.textContent)
     }

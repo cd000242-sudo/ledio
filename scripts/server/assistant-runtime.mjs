@@ -7,6 +7,7 @@ import { spawn } from 'node:child_process'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { budgetArgs, classifyLimitError, DEFAULT_BUDGET_USD, resolveBudgetUsd } from './usage-limit.mjs'
 
 /** 이 도구들만 허용한다 — 나머지(Bash·Edit·Read 등)는 아래 DENIED로 막는다. */
 export const ALLOWED_TOOLS = ['mcp__shortsfactory__*', 'WebSearch', 'WebFetch', 'ToolSearch']
@@ -97,7 +98,12 @@ export function buildInputLine(text) {
   return escaped + '\n'
 }
 
-export function buildClaudeArgs({ mcpConfigPath, resumeSessionId = null, model = null }) {
+export function buildClaudeArgs({
+  mcpConfigPath,
+  resumeSessionId = null,
+  model = null,
+  budgetUsd = resolveBudgetUsd(process.env.SHORTS_ASSISTANT_BUDGET_USD, DEFAULT_BUDGET_USD.session),
+}) {
   const args = [
     '-p',
     '--input-format',
@@ -120,6 +126,8 @@ export function buildClaudeArgs({ mcpConfigPath, resumeSessionId = null, model =
   ]
   if (model) args.push('--model', model)
   if (resumeSessionId) args.push('--resume', resumeSessionId)
+  // 대화 1세션 비용 상한 — 도구가 꼬여 무한히 도는 사고가 구독 한도를 태우지 않게 막는다.
+  args.push(...budgetArgs(budgetUsd))
   return args
 }
 
@@ -173,12 +181,15 @@ export function parseStreamLine(line) {
   }
 
   if (data.type === 'result') {
+    const result = data.result ?? ''
     return [
       {
         type: 'done',
         sessionId: data.session_id,
         isError: Boolean(data.is_error),
-        result: data.result ?? '',
+        result,
+        // 한도·예산으로 끝난 경우에만 채워진다. UI가 "고장"이 아니라 "한도"로 표시하는 근거.
+        limit: data.is_error ? classifyLimitError(result) : null,
         costUsd: data.total_cost_usd ?? 0,
         durationMs: data.duration_ms ?? 0,
       },

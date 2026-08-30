@@ -72,6 +72,16 @@ describe('CLI 인자', () => {
     expect(args[args.indexOf('--resume') + 1]).toBe('abc')
     expect(args[args.indexOf('--model') + 1]).toBe('haiku')
   })
+
+  it('대화 1세션 비용 상한을 건다 — 도구가 꼬여도 구독 한도를 다 태우지 않게', () => {
+    const args = buildClaudeArgs({ mcpConfigPath: '/tmp/mcp.json', budgetUsd: 5 })
+    expect(args[args.indexOf('--max-budget-usd') + 1]).toBe('5')
+  })
+
+  it('상한을 끄면 플래그를 넣지 않는다', () => {
+    const args = buildClaudeArgs({ mcpConfigPath: '/tmp/mcp.json', budgetUsd: null })
+    expect(args).not.toContain('--max-budget-usd')
+  })
 })
 
 describe('시스템 프롬프트', () => {
@@ -162,7 +172,28 @@ describe('스트림 파서', () => {
         is_error: false,
       }),
     )
-    expect(event).toEqual({ type: 'done', sessionId: 's-1', isError: false, result: '끝', costUsd: 0.07, durationMs: 6900 })
+    expect(event).toEqual({
+      type: 'done',
+      sessionId: 's-1',
+      isError: false,
+      result: '끝',
+      limit: null,
+      costUsd: 0.07,
+      durationMs: 6900,
+    })
+  })
+
+  it('한도로 끝난 result는 어느 한도인지 붙여 보낸다', () => {
+    const [event] = parseStreamLine(
+      JSON.stringify({
+        type: 'result',
+        session_id: 's-2',
+        result: "You've hit your Opus limit",
+        is_error: true,
+      }),
+    )
+    // 모델별 한도는 모델만 바꾸면 계속 쓸 수 있다 — UI가 그 안내를 띄우는 근거
+    expect(event.limit).toMatchObject({ kind: 'model', switchable: true })
   })
 
   it('깨진 줄·관심 없는 이벤트는 조용히 버린다', () => {
