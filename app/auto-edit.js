@@ -8,14 +8,7 @@
  */
 
 import { ownsTab } from './tab-owner.js'
-
-const REASON_LABELS = {
-  silence: '무음',
-  filler: '군더더기',
-  duplicate: '중복',
-  stumble: '말 끊김',
-  retake: '다시 찍음',
-}
+import { buildReview } from './auto-edit-review.js'
 
 const STRENGTHS = [
   { value: 'light', label: '약하게 (확실한 것만)' },
@@ -30,6 +23,7 @@ const state = {
   smoothJoin: true,
   progress: null,
   collapsed: false,
+  peaks: null,
   busy: false,
   phase: 'idle',
   status: '',
@@ -51,6 +45,22 @@ const seconds = (ms) => `${Math.floor(ms / 1000 / 60)}분 ${Math.round((ms / 100
 
 let repaint = () => {}
 let progressTimer = null
+let summaryNode = null
+
+/**
+ * 요약 숫자만 고쳐 쓴다.
+ * 전체를 다시 그리면 미리보기 영상이 처음으로 되감기고 확대해 둔 타임라인도 풀린다.
+ */
+function repaintSummary() {
+  if (!summaryNode || !state.analysis) return
+  const picked = state.analysis.candidates.filter((item) => state.checked.has(item.id))
+  const pickedMs = picked.reduce((sum, item) => sum + (item.endMs - item.startMs), 0)
+  summaryNode.replaceChildren(
+    el('strong', null, `자를 후보 ${state.analysis.candidates.length}곳`),
+    el('span', 'muted', `고른 것 ${picked.length}곳 · ${seconds(pickedMs)} 단축 예정`),
+    el('span', 'muted', `${seconds(state.analysis.totalMs)} → ${seconds(state.analysis.totalMs - pickedMs)}`),
+  )
+}
 
 const STAGE_LABELS = {
   starting: '준비 중',
@@ -72,6 +82,21 @@ function watchProgress() {
       // 잠깐 못 읽어도 그만이다 — 다음 번에 다시 물어본다.
     }
   }, 1200)
+}
+
+/** 타임라인에 그릴 파형을 받아 둔다 — 없으면 파형 없이도 그린다(그리기만 밋밋해진다). */
+async function loadPeaks() {
+  state.peaks = null
+  try {
+    const response = await fetch(`/api/auto-edit/peaks?mediaPath=${encodeURIComponent(state.mediaPath)}`)
+    const data = await response.json()
+    if (data.ok) {
+      state.peaks = data.peaks
+      repaint()
+    }
+  } catch {
+    // 파형은 없어도 자를 수 있다.
+  }
 }
 
 function stopWatching() {
@@ -100,6 +125,7 @@ async function analyze(deps) {
     const data = await response.json()
     if (!data.ok) throw new Error(data.error ?? '분석에 실패했습니다.')
     state.analysis = data
+    loadPeaks()
     // 확실한 것만 미리 체크해 둔다(중복은 오판이 있을 수 있어 빼둔다).
     state.checked = new Set(data.candidates.filter((item) => item.suggested).map((item) => item.id))
     state.phase = 'review'
@@ -152,25 +178,6 @@ async function applyCuts() {
     state.busy = false
     repaint()
   }
-}
-
-function buildCandidateRow(item) {
-  const row = el('label', `auto-cut${state.checked.has(item.id) ? ' is-on' : ''}`)
-  const box = el('input')
-  box.type = 'checkbox'
-  box.checked = state.checked.has(item.id)
-  box.addEventListener('change', () => {
-    if (box.checked) state.checked.add(item.id)
-    else state.checked.delete(item.id)
-    repaint()
-  })
-  row.append(
-    box,
-    el('span', 'auto-cut-time', item.time),
-    el('span', 'auto-cut-text', item.text || '(말 없음)'),
-    el('span', `auto-cut-why reason-${item.reason}`, item.label || REASON_LABELS[item.reason] || ''),
-  )
-  return row
 }
 
 /** 진행 막대 — 접으면 한 줄로 줄고, 다시 누르면 펼쳐진다. */
@@ -280,6 +287,7 @@ function buildTab(deps) {
   // 후보 목록
   if (state.analysis) {
     const summary = el('div', 'auto-summary')
+    summaryNode = summary
     const picked = state.analysis.candidates.filter((item) => state.checked.has(item.id))
     const pickedMs = picked.reduce((sum, item) => sum + (item.endMs - item.startMs), 0)
     summary.append(
@@ -289,9 +297,27 @@ function buildTab(deps) {
     )
     root.append(summary)
 
-    const list = el('div', 'auto-cutlist')
-    for (const item of state.analysis.candidates) list.append(buildCandidateRow(item))
-    root.append(list)
+    // 미리보기 + 타임라인 + 목록. 보고 듣고 끌어서 조절한 뒤 자른다.
+    root.append(
+      buildReview({
+        mediaPath: state.mediaPath,
+        totalMs: state.analysis.totalMs,
+        peaks: state.peaks,
+        cuts: state.analysis.candidates.map((item) => ({ ...item, on: state.checked.has(item.id) })),
+        onToggle: (id, on) => {
+          if (on) state.checked.add(id)
+          else state.checked.delete(id)
+          repaintSummary()
+        },
+        onAdjust: (id, startMs, endMs) => {
+          const found = state.analysis.candidates.find((item) => item.id === id)
+          if (!found) return
+          found.startMs = Math.round(startMs)
+          found.endMs = Math.round(endMs)
+          repaintSummary()
+        },
+      }),
+    )
 
     const smooth = el('input')
     smooth.type = 'checkbox'

@@ -3,6 +3,7 @@ import { createReadStream, existsSync } from 'node:fs'
 import { createAssistantRuntime } from './server/assistant-runtime.mjs'
 import { createInstaller, isEngineInstalled } from './server/stt-engine.mjs'
 import { analyzeForAutoEdit, applySelectedCuts, readAutoEditProgress } from './server/auto-edit.mjs'
+import { bucketPeaks, buildPeaksArgs } from './server/peaks.mjs'
 import { eraseSubtitles } from './server/subtitle-erase.mjs'
 import {
   buildBurnSrt,
@@ -1500,6 +1501,44 @@ async function loadAutoEditModules() {
     import('../dist/edit/autoCut.js'),
   ])
   return { subtitles: { reformatSubtitles: reformat.reformatSubtitles }, autoCut }
+}
+
+/**
+ * 검수 화면이 쓰는 영상 — 사용자가 고른 파일을 그대로 내보낸다.
+ *
+ * 기존 미리보기 엔드포인트는 projects/ 안으로 제한돼 있어 바깥 영상을 못 연다.
+ * 자동 편집은 사용자가 직접 고른 아무 경로나 다루므로 별도로 둔다(서버는 127.0.0.1 전용이고,
+ * 분석·자르기가 이미 같은 경로를 받는다).
+ */
+async function handleAutoEditMedia(url, res, req) {
+  const mediaPath = String(url.searchParams.get('mediaPath') ?? '').trim()
+  if (!mediaPath || !existsSync(mediaPath)) {
+    sendJson(res, 404, { ok: false, error: '영상을 찾을 수 없습니다.' })
+    return
+  }
+  await sendStaticFile(res, mediaPath, req)
+}
+
+/** 타임라인에 그릴 파형 — 말 없는 구간이 납작하게 보여야 자를 곳이 눈에 띈다. */
+async function handleAutoEditPeaks(url, res) {
+  const mediaPath = String(url.searchParams.get('mediaPath') ?? '').trim()
+  const buckets = Math.min(4000, Math.max(100, Number(url.searchParams.get('buckets')) || 1200))
+  if (!mediaPath || !existsSync(mediaPath)) {
+    sendJson(res, 404, { ok: false, error: '영상을 찾을 수 없습니다.' })
+    return
+  }
+  try {
+    const ffmpeg = findExecutable('ffmpeg', 'FFMPEG_PATH') || 'ffmpeg'
+    const { stdout } = await execFileAsync(ffmpeg, buildPeaksArgs(mediaPath), {
+      encoding: 'buffer',
+      maxBuffer: 256 * 1024 * 1024,
+      timeout: 1000 * 60 * 5,
+    })
+    const samples = new Int16Array(stdout.buffer, stdout.byteOffset, Math.floor(stdout.length / 2))
+    sendJson(res, 200, { ok: true, peaks: bucketPeaks(samples, buckets) })
+  } catch (error) {
+    sendJson(res, 200, { ok: false, error: '파형을 만들지 못했습니다: ' + String(error?.message ?? error).slice(0, 200) })
+  }
 }
 
 /** 받아쓰기가 어디까지 갔는지 — 화면이 막대로 보여준다. 파이썬이 적어 둔 진짜 값이다. */
@@ -3661,6 +3700,16 @@ export function createShortsFactoryServer(options = {}) {
 
       if (pathname === '/api/subtitle-erase' && req.method === 'POST') {
         await handleSubtitleErase(req, res, workspaceRoot)
+        return
+      }
+
+      if (pathname === '/api/auto-edit/media' && req.method === 'GET') {
+        await handleAutoEditMedia(requestUrl, res, req)
+        return
+      }
+
+      if (pathname === '/api/auto-edit/peaks' && req.method === 'GET') {
+        await handleAutoEditPeaks(requestUrl, res)
         return
       }
 

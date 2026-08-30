@@ -55,13 +55,20 @@ test('자동 편집 탭: 후보 목록과 체크 상태가 화면에 반영된�
   })
 
   const tab = page.locator('.auto-tab')
-  await expect(tab.locator('.auto-cut')).toHaveCount(2)
+  const rows = tab.locator('.auto-review-row')
+  await expect(rows).toHaveCount(2)
   // 무음은 기본 체크, 중복은 체크 안 됨(오판 가능성)
-  await expect(tab.locator('.auto-cut').first().locator('input')).toBeChecked()
-  await expect(tab.locator('.auto-cut').last().locator('input')).not.toBeChecked()
+  await expect(rows.first().locator('input')).toBeChecked()
+  await expect(rows.last().locator('input')).not.toBeChecked()
   await expect(tab.locator('.auto-summary')).toContainText('자를 후보 2곳')
 
-  // 체크하면 단축 예정 시간이 늘어난다
-  await tab.locator('.auto-cut').last().locator('input').check()
+  // 검수 화면에는 미리보기와 타임라인이 함께 있어야 한다
+  await expect(tab.locator('.auto-review-video')).toHaveCount(1)
+  await expect(tab.locator('.tl-track')).toHaveCount(1)
+  // 자를 구간이 타임라인 위에 보인다
+  await expect(tab.locator('.tl-region')).toHaveCount(2)
+
+  // 체크하면 단축 예정 시간이 늘어난다 — 영상은 다시 로드되지 않아야 한다
+  await rows.last().locator('input').check()
   await expect(tab.locator('.auto-summary')).toContainText('고른 것 2곳')
 })
