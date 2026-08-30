@@ -99,3 +99,30 @@ describe('컷 적용', () => {
     expect(result.error).toContain('남는 영상이 없습니다')
   })
 })
+
+
+describe('다시 찍은 부분', () => {
+  it('남길 쪽(뒤 테이크)까지 화면에 넘긴다 — 앞뒤를 나란히 보여줘야 한다', () => {
+    const [shaped] = describeCandidates([
+      {
+        startMs: 0,
+        endMs: 4000,
+        text: '앞 테이크',
+        reason: 'retake',
+        label: '다시 찍음',
+        suggested: true,
+        keep: { startMs: 5100, endMs: 9000, text: '뒤 테이크' },
+      },
+    ])
+    expect(shaped.reason).toBe('retake')
+    expect(shaped.keep).toEqual({ startMs: 5100, endMs: 9000, text: '뒤 테이크' })
+    expect(shaped.keepTime).toBe('00:05.1 – 00:09.0')
+  })
+
+  it('다시 찍은 게 아니면 남길 쪽이 없다', () => {
+    const [shaped] = describeCandidates([
+      { startMs: 0, endMs: 1000, text: '', reason: 'silence', label: '무음', suggested: true },
+    ])
+    expect(shaped.keep).toBeUndefined()
+  })
+})

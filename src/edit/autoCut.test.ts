@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest'
-import { buildCutPlan, findCutCandidates, isFillerOnly, keepRanges, looksLikeStumble, similarity } from './autoCut.js'
+import {
+  buildCutPlan,
+  findCutCandidates,
+  isFillerOnly,
+  keepRanges,
+  looksLikeStumble,
+  openingOverlap,
+  similarity,
+} from './autoCut.js'
 import type { Cue } from '../subtitles/srt.js'
 
 const cue = (startMs: number, endMs: number, text: string): Cue => ({ startMs, endMs, text })
@@ -34,6 +42,80 @@ describe('문장 닮은 정도', () => {
 
   it('빈 값은 0', () => {
     expect(similarity('', '무언가')).toBe(0)
+  })
+})
+
+describe('앞부분 겹침', () => {
+  it('말하다 끊고 다시 시작하면 앞부분이 그대로 겹친다', () => {
+    expect(openingOverlap('API 키는 설정 탭에서', 'API 키는 설정 탭 맨 아래에서 넣으시면 됩니다')).toBeGreaterThan(0.7)
+  })
+
+  it('시작이 다르면 낮다', () => {
+    expect(openingOverlap('오늘 날씨가 좋네요', '자막을 만들어 봅시다')).toBeLessThan(0.2)
+  })
+
+  it('너무 짧은 말은 0 — 우연히 겹칠 수 있다', () => {
+    expect(openingOverlap('네', '네 그렇습니다')).toBe(0)
+  })
+})
+
+describe('다시 찍은 부분(NG) 찾기', () => {
+  it('NG 뒤에 딴 말이 끼어도 다시 찍은 것을 잡는다 — 바로 다음 문장만 보면 놓친다', () => {
+    const cues = [
+      cue(0, 4000, 'API 키는 설정 탭에서 넣으시면 됩니다.'),
+      cue(4100, 5200, '아 잠깐만요.'),
+      cue(5300, 6000, '어 그러니까'),
+      cue(6100, 10000, 'API 키는 설정 탭 맨 아래에서 넣으시면 됩니다.'),
+    ]
+    const retake = findCutCandidates(cues).find((item) => item.reason === 'retake')
+    expect(retake?.startMs).toBe(0)
+    expect(retake?.endMs).toBe(4000)
+  })
+
+  it('남길 쪽(뒤 테이크)을 함께 알려 준다 — 화면에서 나란히 보여줘야 한다', () => {
+    const cues = [
+      cue(0, 4000, '이번에 준비한 건 자막 기능입니다.'),
+      cue(4100, 5000, '아 다시 할게요.'),
+      cue(5100, 9000, '이번에 준비한 건 자막 기능이에요.'),
+    ]
+    const retake = findCutCandidates(cues).find((item) => item.reason === 'retake')
+    expect(retake?.keep?.startMs).toBe(5100)
+    expect(retake?.keep?.text).toContain('기능이에요')
+  })
+
+  it('말하다 끊고 다시 시작한 부분 반복도 잡는다', () => {
+    const cues = [
+      cue(0, 3000, '설치는 먼저 압축을 푸시고'),
+      cue(3100, 8000, '설치는 먼저 압축을 푼 다음에 실행 파일을 누르시면 됩니다.'),
+    ]
+    const retake = findCutCandidates(cues).find((item) => item.reason === 'retake')
+    expect(retake?.startMs).toBe(0)
+  })
+
+  it('다시 찍은 것은 기본으로 체크한다 — 근거가 뚜렷하다', () => {
+    const cues = [
+      cue(0, 3000, '설치는 먼저 압축을 푸시고'),
+      cue(3100, 8000, '설치는 먼저 압축을 푼 다음에 실행 파일을 누르시면 됩니다.'),
+    ]
+    expect(findCutCandidates(cues).find((item) => item.reason === 'retake')?.suggested).toBe(true)
+  })
+
+  it('내용이 다르면 잡지 않는다 — 멀쩡한 말을 지우면 안 된다', () => {
+    const cues = [
+      cue(0, 3000, '오늘은 날씨가 좋습니다.'),
+      cue(3100, 5000, '아 잠깐만요.'),
+      cue(5100, 9000, '자막 기능을 설명드리겠습니다.'),
+    ]
+    expect(findCutCandidates(cues).some((item) => item.reason === 'retake')).toBe(false)
+  })
+
+  it('한 곳을 두 번 올리지 않는다', () => {
+    const cues = [
+      cue(0, 3000, '설치는 먼저 압축을 푸시고'),
+      cue(3100, 8000, '설치는 먼저 압축을 푼 다음에 실행 파일을 누르시면 됩니다.'),
+    ]
+    const found = findCutCandidates(cues).filter((item) => item.startMs === 0)
+    expect(found).toHaveLength(1)
   })
 })
 

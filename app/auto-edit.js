@@ -14,6 +14,7 @@ const REASON_LABELS = {
   filler: '군더더기',
   duplicate: '중복',
   stumble: '말 끊김',
+  retake: '다시 찍음',
 }
 
 const STRENGTHS = [
@@ -26,6 +27,7 @@ const state = {
   mediaPath: '',
   mediaName: '',
   strength: 'normal',
+  smoothJoin: true,
   busy: false,
   phase: 'idle',
   status: '',
@@ -101,6 +103,7 @@ async function applyCuts() {
         mediaPath: state.mediaPath,
         totalMs: state.analysis.totalMs,
         selected: selected.map((item) => ({ startMs: item.startMs, endMs: item.endMs })),
+        smoothJoin: state.smoothJoin,
       }),
     })
     const data = await response.json()
@@ -211,6 +214,16 @@ function buildTab(deps) {
     const list = el('div', 'auto-cutlist')
     for (const item of state.analysis.candidates) list.append(buildCandidateRow(item))
     root.append(list)
+
+    const smooth = el('input')
+    smooth.type = 'checkbox'
+    smooth.checked = state.smoothJoin
+    smooth.addEventListener('change', () => {
+      state.smoothJoin = smooth.checked
+    })
+    const smoothLabel = el('label', 'auto-join-opt')
+    smoothLabel.append(smooth, el('span', null, '자연스럽게 잇기 — 자른 자리에서 소리를 짧게 여닫습니다'))
+    root.append(smoothLabel)
 
     const applyBtn = el('button', 'primary-button', state.busy ? '자르는 중…' : '고른 대로 자르기')
     applyBtn.type = 'button'

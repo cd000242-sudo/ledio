@@ -29,6 +29,13 @@ export function describeCandidates(candidates) {
     reason: candidate.reason,
     label: candidate.label,
     suggested: candidate.suggested,
+    // 다시 찍은 경우 남길 쪽(뒤 테이크)도 함께 넘긴다 — 화면에서 앞뒤를 나란히 보여준다.
+    ...(candidate.keep
+      ? {
+          keep: candidate.keep,
+          keepTime: `${formatClock(candidate.keep.startMs)} – ${formatClock(candidate.keep.endMs)}`,
+        }
+      : {}),
   }))
 }
 
@@ -80,7 +87,7 @@ export async function analyzeForAutoEdit(mediaPath, deps, options = {}) {
  * ③ 고른 후보로 실제 컷 계획을 만든다.
  * @param deps `{ autoCut, writeFile, runCommand(args): Promise<{ok, outPath, error}> }`
  */
-export async function applySelectedCuts(mediaPath, selected, totalMs, deps) {
+export async function applySelectedCuts(mediaPath, selected, totalMs, deps, options = {}) {
   const { autoCut, writeFile, runCommand } = deps
   if (!Array.isArray(selected) || selected.length === 0) {
     return { ok: false, error: '자를 구간을 하나도 고르지 않았습니다.' }
@@ -94,7 +101,10 @@ export async function applySelectedCuts(mediaPath, selected, totalMs, deps) {
 
   const paths = autoEditPaths(mediaPath)
   await writeFile(paths.keepJson, JSON.stringify(keep), 'utf8')
-  const result = await runCommand(['apply-cuts', mediaPath, '--keep', paths.keepJson, '--json'])
+  const args = ['apply-cuts', mediaPath, '--keep', paths.keepJson, '--json']
+  // 자연스럽게 잇기를 끄면 자른 자리에서 소리가 뚝 끊긴다 — 사용자가 고를 수 있게 한다.
+  if (options.smoothJoin === false) args.push('--fade-ms', '0')
+  const result = await runCommand(args)
   if (!result.ok) return { ok: false, error: result.error ?? '컷 적용에 실패했습니다.' }
 
   return {

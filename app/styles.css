@@ -3414,6 +3414,21 @@ body[data-mode='simple'] #workbenchToggleBtn {
 }
 .auto-cut-why.reason-duplicate { border-color: var(--copper); color: var(--copper); }
 .auto-cut-why.reason-silence { border-color: var(--blue); color: var(--blue); }
+.auto-cut-why.reason-retake { border-color: var(--green); color: var(--green); }
+.auto-join-opt {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin: 12px 0;
+  padding: 10px 13px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+  color: var(--muted);
+  font-size: 12.5px;
+  cursor: pointer;
+}
+.auto-join-opt input { accent-color: var(--teal); width: 15px; height: 15px; }
 
 /* ── 자막 지우기 탭 ── */
 .erase-tab { display: flex; flex-direction: column; gap: 12px; max-width: 780px; }

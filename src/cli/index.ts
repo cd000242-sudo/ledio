@@ -150,6 +150,7 @@ program
   .argument('<videoPath>', 'source video')
   .requiredOption('--keep <file>', 'JSON file with [{startMs,endMs}] ranges to keep')
   .option('--out <file>', 'output video path')
+  .option('--fade-ms <ms>', 'audio fade at each join in ms (0 = hard cut)')
   .option('--json', 'print JSON report')
   .action(async (videoPath: string, options: Parameters<typeof runApplyCuts>[1]) => {
     process.exitCode = await runApplyCuts(videoPath, options)

@@ -1566,7 +1566,13 @@ async function handleAutoEditApply(req, res, workspaceRoot, commandRunner) {
   }
 
   const selected = Array.isArray(body.selected) ? body.selected : []
-  const result = await applySelectedCuts(mediaPath, selected, totalMs, { autoCut, writeFile, runCommand })
+  const result = await applySelectedCuts(
+    mediaPath,
+    selected,
+    totalMs,
+    { autoCut, writeFile, runCommand },
+    { smoothJoin: body.smoothJoin !== false },
+  )
   sendJson(res, 200, result)
 }
 

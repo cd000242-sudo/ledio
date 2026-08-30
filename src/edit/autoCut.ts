@@ -7,7 +7,7 @@ import type { Cue } from '../subtitles/srt.js'
  * (자동 편집 도구들이 욕먹는 지점이 "말한 걸 멋대로 지웠다"이다)
  */
 
-export type CutReason = 'silence' | 'filler' | 'duplicate' | 'stumble'
+export type CutReason = 'silence' | 'filler' | 'duplicate' | 'stumble' | 'retake'
 
 export interface CutCandidate {
   startMs: number
@@ -19,7 +19,15 @@ export interface CutCandidate {
   label: string
   /** 기본으로 체크할지 — 확실한 것만 체크해 둔다. */
   suggested: boolean
+  /** 다시 찍은 경우 **남기는 쪽**(뒤 테이크). 화면에서 앞뒤를 나란히 보여주려고 함께 넘긴다. */
+  keep?: { startMs: number; endMs: number; text: string }
 }
+
+/** NG 뒤에 "아 잠깐만요" 같은 말이 끼기도 한다 — 뒤 몇 문장까지 본다. */
+const RETAKE_LOOKAHEAD = 3
+
+/** 이 글자 수보다 짧으면 앞부분이 우연히 겹칠 수 있어 다시 찍은 것으로 보지 않는다. */
+const RETAKE_MIN_CHARS = 6
 
 /** 말버릇·군더더기. 문장 전체가 이것뿐일 때만 자른다. */
 const FILLER_WORDS = ['어', '음', '그', '저', '아', '뭐', '이제', '그러니까', '어어', '음음', '그니까', '뭐랄까']
@@ -64,6 +72,24 @@ export function isFillerOnly(text: string): boolean {
   if (words.length === 0) return false
   if (words.length > 3) return false
   return words.every((word) => FILLER_WORDS.includes(word))
+}
+
+/**
+ * 두 말의 **앞부분**이 얼마나 겹치는지(0~1).
+ *
+ * 말하다 끊고 다시 시작하면 뒤는 달라도 앞은 그대로다
+ * ("설치는 먼저 압축을 푸시고" → "설치는 먼저 압축을 푼 다음에 …").
+ * 전체 닮은 정도만 보면 이런 부분 반복을 놓친다.
+ */
+export function openingOverlap(left: string, right: string): number {
+  const a = normalize(left).replace(/ /g, '')
+  const b = normalize(right).replace(/ /g, '')
+  const shorter = Math.min(a.length, b.length)
+  if (shorter < RETAKE_MIN_CHARS) return 0
+
+  let shared = 0
+  while (shared < shorter && a[shared] === b[shared]) shared += 1
+  return shared / shorter
 }
 
 export function looksLikeStumble(text: string): boolean {
@@ -148,25 +174,70 @@ export function findCutCandidates(cues: Cue[], options: AutoCutOptions = {}): Cu
       continue
     }
 
-    // 바로 다음 문장과 많이 겹치면 앞 문장을 자른다(다시 말한 쪽을 남긴다).
-    const next = cues[index + 1]
-    if (next && charLength(text) >= 6) {
-      const score = similarity(text, next.text)
-      if (score >= duplicateThreshold) {
-        candidates.push({
-          startMs: cue.startMs,
-          endMs: cue.endMs,
-          text,
-          reason: 'duplicate',
-          label: `중복 · 뒤가 더 매끄러움 (${Math.round(score * 100)}% 일치)`,
-          // 중복 판정은 틀릴 수 있어 기본 체크는 하지 않는다.
-          suggested: false,
-        })
-      }
+    // 뒤에서 같은 말을 다시 했으면 앞을 자른다(다시 말한 쪽을 남긴다).
+    // 바로 다음 문장만 보면 NG 뒤에 "아 잠깐만요"가 끼었을 때 놓친다(실측으로 확인).
+    if (charLength(text) >= RETAKE_MIN_CHARS) {
+      const match = findLaterTake(cues, index, duplicateThreshold)
+      if (match) candidates.push(match)
     }
   }
 
   return candidates.sort((left, right) => left.startMs - right.startMs)
+}
+
+/**
+ * 이 문장을 뒤에서 다시 말했는지 찾는다. 찾으면 **앞 문장을 자를 후보**로 만든다.
+ *
+ * 두 가지를 본다.
+ *   전체가 닮았다        → 같은 말을 통째로 다시 했다(중복)
+ *   앞부분이 그대로 겹친다 → 말하다 끊고 다시 시작했다(다시 찍음)
+ *
+ * 끊긴 흔적("아 잠깐만요")이 있거나 앞부분이 그대로 겹치면 근거가 뚜렷하므로 기본 체크한다.
+ * 전체 닮은 정도만으로 판정한 것은 오판이 있을 수 있어 체크하지 않는다.
+ */
+function findLaterTake(cues: Cue[], index: number, duplicateThreshold: number): CutCandidate | null {
+  const cue = cues[index]
+  if (!cue) return null
+  const text = cue.text
+
+  for (let ahead = 1; ahead <= RETAKE_LOOKAHEAD; ahead += 1) {
+    const later = cues[index + ahead]
+    if (!later) break
+    // 사이에 낀 말이 군더더기·끊김이 아니면 다시 찍은 것으로 보기 어렵다.
+    const between = cues[index + ahead - 1]
+    if (ahead > 1 && between && !isFillerOnly(between.text) && !looksLikeStumble(between.text)) break
+    if (charLength(later.text) < RETAKE_MIN_CHARS) continue
+
+    const score = similarity(text, later.text)
+    const opening = openingOverlap(text, later.text)
+    const broken = ahead > 1 || looksLikeStumble(text) || (opening >= 0.7 && charLength(later.text) > charLength(text))
+
+    if (opening >= 0.7 && broken) {
+      return {
+        startMs: cue.startMs,
+        endMs: cue.endMs,
+        text,
+        reason: 'retake',
+        label: `다시 찍음 · 앞부분이 같습니다 (${Math.round(opening * 100)}%)`,
+        suggested: true,
+        keep: { startMs: later.startMs, endMs: later.endMs, text: later.text },
+      }
+    }
+    if (score >= duplicateThreshold) {
+      return {
+        startMs: cue.startMs,
+        endMs: cue.endMs,
+        text,
+        reason: broken ? 'retake' : 'duplicate',
+        label: broken
+          ? `다시 찍음 · 같은 말을 다시 하셨습니다 (${Math.round(score * 100)}% 일치)`
+          : `중복 · 뒤가 더 매끄러움 (${Math.round(score * 100)}% 일치)`,
+        suggested: broken,
+        keep: { startMs: later.startMs, endMs: later.endMs, text: later.text },
+      }
+    }
+  }
+  return null
 }
 
 export interface CutPlan {
