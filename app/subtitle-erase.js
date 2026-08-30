@@ -6,6 +6,8 @@
  * 쇼츠(9:16)든 롱폼(16:9)이든 좌표 기반이라 비율을 가리지 않는다.
  */
 
+import { ownsTab } from './tab-owner.js'
+
 const MODES = [
   { value: 'background', label: '배경 복원 (권장 · 무늬 있는 배경에 강함)' },
   { value: 'fast', label: '빠른 채우기 (단순한 배경·움직이는 물체에 강함)' },
@@ -203,7 +205,9 @@ function buildTab(deps) {
 
 export function renderSubtitleEraseTab(container, deps = {}) {
   const paint = () => {
-    if (!container.isConnected) return
+    // 다른 탭으로 넘어갔으면 그리지 않는다. 탭들이 같은 자리를 쓰기 때문에,
+    // 늦게 돌아온 응답이 남의 화면을 덮어쓴다(실측으로 확인한 사고).
+    if (!ownsTab(container, 'erase')) return
     container.replaceChildren(buildTab(deps))
   }
   repaint = paint

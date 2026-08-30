@@ -52,6 +52,7 @@ import {
 import { mkdir, readFile, stat, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import { delimiter, dirname, extname, isAbsolute, join, normalize, resolve, sep } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { homedir } from 'node:os'
 import { execFile, spawn } from 'node:child_process'
 import { promisify } from 'node:util'
@@ -85,6 +86,13 @@ const pythonScriptDirs = [
   join(homedir(), 'AppData', 'Roaming', 'Python', 'Python314', 'Scripts'),
   'C:\\Python314\\Scripts',
 ]
+
+/**
+ * 앱과 함께 배포되는 파일(scripts, dist, app)이 있는 곳 — 이 모듈의 위치에서 구한다.
+ * 인자로 받은 작업 폴더로 찾으면 안 된다. 설치본에서는 그 둘이 다른 자리에 있다.
+ */
+const PROGRAM_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
+
 
 function safeStartsWith(childPath, parentPath) {
   const child = resolve(childPath).toLowerCase()
@@ -255,7 +263,7 @@ function mediaFolderForKind(kind) {
 function cliEntryArgs(workspaceRoot) {
   const tsxCli = join(workspaceRoot, 'node_modules', 'tsx', 'dist', 'cli.mjs')
   if (existsSync(tsxCli)) return [tsxCli, join(workspaceRoot, 'src', 'cli', 'index.ts')]
-  return [join(workspaceRoot, 'dist', 'cli', 'index.js')]
+  return [join(PROGRAM_ROOT, 'dist', 'cli', 'index.js')]
 }
 
 // ── 자식 프로세스 관리: 좀비가 남지 않게 트리째 종료한다 ──
@@ -1466,7 +1474,7 @@ async function handleSubtitleErase(req, res, workspaceRoot) {
 
   const result = await eraseSubtitles(
     mediaPath,
-    { runPython, scriptPath: join(workspaceRoot, 'scripts', 'subtitle_erase.py') },
+    { runPython, scriptPath: join(PROGRAM_ROOT, 'scripts', 'subtitle_erase.py') },
     {
       preview: body.preview === true,
       mode: String(body.mode ?? 'background'),
@@ -1771,7 +1779,7 @@ async function handleAssistantChat(req, res, workspaceRoot) {
   }
   assistantRuntime = createAssistantRuntime({
     apiBase: `http://${req.headers.host}`,
-    serverScript: join(workspaceRoot, 'scripts', 'mcp', 'shorts-mcp.mjs'),
+    serverScript: join(PROGRAM_ROOT, 'scripts', 'mcp', 'shorts-mcp.mjs'),
     claudeBinary: findAgentBinary('claude', 'CLAUDE_BIN'),
     defaults: { method: body.method ? String(body.method) : undefined, apiKey: body.apiKey ? String(body.apiKey) : undefined },
   })
@@ -3349,7 +3357,7 @@ function warmUpTtsDaemon(workspaceRoot) {
     }
     if (!(await health())) {
       const pythonw = join(workspaceRoot, '.venv-tts', 'Scripts', 'pythonw.exe')
-      const daemonScript = join(workspaceRoot, 'scripts', 'qwen3_tts_daemon.py')
+      const daemonScript = join(PROGRAM_ROOT, 'scripts', 'qwen3_tts_daemon.py')
       if (!existsSync(pythonw) || !existsSync(daemonScript)) return
       spawn(pythonw, [daemonScript, String(port)], {
         cwd: workspaceRoot,
@@ -3373,8 +3381,11 @@ function warmUpTtsDaemon(workspaceRoot) {
 }
 
 export function createShortsFactoryServer(options = {}) {
+  // workspaceRoot는 **사용자가 만든 것**(projects, .venv-stt)이 있는 곳이다.
+  // 함께 배포되는 파일(scripts, dist, app)은 PROGRAM_ROOT에서 찾는다 — 설치본은
+  // 업데이트 때 설치 폴더를 갈아엎어서, 둘을 같은 곳에 두면 작업물이 지워진다.
   const workspaceRoot = resolve(options.workspaceRoot ?? process.cwd())
-  const appRoot = resolve(options.appRoot ?? join(workspaceRoot, 'app'))
+  const appRoot = resolve(options.appRoot ?? join(PROGRAM_ROOT, 'app'))
   const host = options.host ?? '127.0.0.1'
   const port = Number(options.port ?? process.env.PORT ?? 4173)
   const commandRunner = options.commandRunner ?? defaultCommandRunner

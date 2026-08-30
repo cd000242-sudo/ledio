@@ -28,6 +28,7 @@ import { mountAssistant } from './assistant.js';
 import { renderLongformCaptionsTab } from './longform-captions.js';
 import { renderAutoEditTab } from './auto-edit.js';
 import { renderSubtitleEraseTab } from './subtitle-erase.js';
+import { claimTab } from './tab-owner.js';
 import {
   clean,
   formatTags,
@@ -1401,6 +1402,8 @@ function renderTabContent() {
   normalizeSelectedTab();
   setTabHead();
   const content = byId('tabContent');
+  // 지금 이 자리의 주인을 표시한다 — 늦게 돌아온 응답이 다른 탭 화면을 덮어쓰지 못하게.
+  claimTab(content, state.selectedTab);
   if (state.selectedTab === 'wizard') renderWizardHub(content);
   if (state.selectedTab === 'manual') renderManualTab(content);
   if (state.selectedTab === 'autoedit') renderAutoEdit(content);

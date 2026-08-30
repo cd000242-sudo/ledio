@@ -8,6 +8,8 @@
  * 작업은 몇 분씩 걸리므로 탭을 옮겼다 와도 이어서 보여야 한다.
  */
 
+import { ownsTab } from './tab-owner.js'
+
 const STEPS = [
   { id: 'stt', label: '받아쓰기' },
   { id: 'correct', label: '대본 대조 보정' },
@@ -250,8 +252,9 @@ async function runCaptions(deps) {
  */
 export function renderLongformCaptionsTab(container, deps = {}) {
   const paint = () => {
-    // 탭이 이미 다른 화면으로 바뀌었으면 그리지 않는다(떨어져 나간 DOM에 그리는 낭비 방지).
-    if (!container.isConnected) return
+    // 다른 탭으로 넘어갔으면 그리지 않는다. 탭들이 같은 자리를 쓰기 때문에,
+    // 늦게 돌아온 응답이 남의 화면을 덮어쓴다(실측으로 확인한 사고).
+    if (!ownsTab(container, 'captions')) return
     container.replaceChildren(buildTab(deps))
   }
   repaint = paint

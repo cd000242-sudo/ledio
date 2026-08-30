@@ -5,12 +5,21 @@ import { copyFile, mkdir, readFile } from 'node:fs/promises'
 import { basename, dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createShortsFactoryServer, killAllCliChildren } from '../scripts/local-server.mjs'
+import { resolveRoots } from '../scripts/server/app-roots.mjs'
 
 const { autoUpdater } = electronUpdater
 
 const electronDir = dirname(fileURLToPath(import.meta.url))
-const workspaceRoot = resolve(app.getAppPath())
-const appRoot = join(workspaceRoot, 'app')
+// 프로그램 파일과 사용자 데이터를 갈라 둔다 — 설치본은 업데이트 때 설치 폴더를 갈아엎어서
+// 같은 곳에 두면 작업물과 자막 엔진(5GB)이 통째로 지워진다.
+const { programRoot, dataRoot } = resolveRoots({
+  isPackaged: app.isPackaged,
+  appPath: resolve(app.getAppPath()),
+  localAppData: process.env.LOCALAPPDATA,
+  userData: app.getPath('userData'),
+})
+const workspaceRoot = dataRoot
+const appRoot = join(programRoot, 'app')
 const host = '127.0.0.1'
 
 let server
@@ -84,7 +93,7 @@ async function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1440,
     height: 920,
-    icon: join(workspaceRoot, 'build', 'icon.ico'),
+    icon: join(programRoot, 'build', 'icon.ico'),
     minWidth: 1120,
     minHeight: 720,
     title: '쇼츠팩토리 스튜디오',

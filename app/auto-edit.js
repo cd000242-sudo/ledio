@@ -7,6 +7,8 @@
  * 상태는 모듈 수준에 둔다 — 탭을 옮겨도 분석 결과가 날아가면 안 된다(몇 분씩 걸리는 작업).
  */
 
+import { ownsTab } from './tab-owner.js'
+
 const REASON_LABELS = {
   silence: '무음',
   filler: '군더더기',
@@ -232,7 +234,9 @@ function buildTab(deps) {
 
 export function renderAutoEditTab(container, deps = {}) {
   const paint = () => {
-    if (!container.isConnected) return
+    // 다른 탭으로 넘어갔으면 그리지 않는다. 탭들이 같은 자리를 쓰기 때문에,
+    // 늦게 돌아온 응답이 남의 화면을 덮어쓴다(실측으로 확인한 사고).
+    if (!ownsTab(container, 'autoedit')) return
     container.replaceChildren(buildTab(deps))
   }
   repaint = paint
