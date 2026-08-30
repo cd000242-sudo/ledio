@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  progressPathFor,
   buildAlignArgs,
   buildAudioExtractArgs,
   buildInitialPrompt,
@@ -126,5 +127,33 @@ describe('음성 추출', () => {
     expect(args[args.indexOf('-ar') + 1]).toBe('16000')
     expect(args[args.indexOf('-ac') + 1]).toBe('1')
     expect(args.at(-1)).toBe('C:/out/a.16k.wav')
+  })
+})
+
+
+describe('진행 상황 파일', () => {
+  it('영상 옆 작업 폴더에 둔다 — 서버가 같은 규칙으로 찾아 읽는다', () => {
+    const path = progressPathFor('C:/영상/API키 설명.mp4').split('\\').join('/')
+    expect(path).toBe('C:/영상/.whisperx/API키 설명.progress.json')
+  })
+
+  it('확장자만 바꾼다 — 점이 여러 개여도 안전하다', () => {
+    expect(progressPathFor('C:/a/b.c.mp4').split('\\').join('/')).toBe('C:/a/.whisperx/b.c.progress.json')
+  })
+})
+
+describe('진행 상황 넘기기', () => {
+  it('진행 파일을 주면 받아쓰기·정렬에 함께 넘긴다 — 파이썬이 여기에 퍼센트를 적는다', () => {
+    const base = { scriptPath: 's.py', mediaPath: 'a.wav', segmentsJson: 'seg.json', progressPath: 'p.json' }
+    const transcribe = buildTranscribeArgs(base)
+    expect(transcribe[transcribe.indexOf('--progress') + 1]).toBe('p.json')
+    const align = buildAlignArgs({ ...base, outJson: 'r.json' })
+    expect(align[align.indexOf('--progress') + 1]).toBe('p.json')
+  })
+
+  it('안 주면 넣지 않는다', () => {
+    expect(buildTranscribeArgs({ scriptPath: 's.py', mediaPath: 'a.wav', segmentsJson: 'seg.json' })).not.toContain(
+      '--progress',
+    )
   })
 })

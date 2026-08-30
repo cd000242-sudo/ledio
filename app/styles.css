@@ -3440,3 +3440,57 @@ body[data-mode='manual'] .timeline-deck {
   max-height: none;
   min-height: 0;
 }
+
+/* ── 자동 편집 진행 막대 ── */
+.auto-progress {
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--panel);
+  overflow: hidden;
+  margin: 12px 0;
+}
+.auto-progress-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+}
+.auto-progress-head .muted { color: var(--muted); font-size: 12.5px; }
+.auto-progress-pct {
+  margin-left: auto;
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--teal);
+  font-variant-numeric: tabular-nums;
+}
+.auto-progress-bar { height: 6px; background: var(--panel-soft); }
+.auto-progress-bar div {
+  height: 100%;
+  background: linear-gradient(90deg, var(--teal), var(--copper));
+  transition: width 0.35s ease;
+}
+.auto-progress-pill {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  margin: 12px 0;
+  padding: 10px 14px;
+  border: 1px solid var(--teal);
+  border-radius: 999px;
+  background: var(--panel);
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.auto-progress-pill .muted { color: var(--muted); font-size: 12px; }
+.auto-progress-pillbar {
+  flex: 1;
+  min-width: 70px;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--panel-soft);
+  overflow: hidden;
+}
+.auto-progress-pillbar span { display: block; height: 100%; background: var(--teal); }

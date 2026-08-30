@@ -13,7 +13,40 @@
 
 import argparse
 import json
+import os
 import sys
+import time
+
+
+def progress_writer(path, stage):
+    """진행 퍼센트를 파일에 적는 함수를 만든다.
+
+    화면이 "몇 분 걸립니다"만 띄우고 아무것도 안 알려주면 멈춘 줄 안다.
+    whisperx가 주는 진짜 퍼센트를 그대로 적는다(추정이 아니다).
+    너무 자주 쓰면 디스크만 괴롭히므로 0.4초 간격 또는 1% 변화일 때만 쓴다.
+    """
+    if not path:
+        return None
+
+    state = {"at": 0.0, "percent": -1.0}
+
+    def write(percent):
+        now = time.monotonic()
+        if percent < 100 and now - state["at"] < 0.4 and abs(percent - state["percent"]) < 1:
+            return
+        state["at"] = now
+        state["percent"] = percent
+        payload = {"stage": stage, "percent": round(float(percent), 1)}
+        temp = path + ".tmp"
+        try:
+            os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+            with open(temp, "w", encoding="utf-8") as handle:
+                json.dump(payload, handle)
+            os.replace(temp, path)  # 반쯤 쓰인 파일을 읽지 않게 통째로 바꾼다
+        except OSError:
+            pass  # 진행 표시가 안 되는 것뿐이다 — 받아쓰기를 막지 않는다
+
+    return write
 
 
 def transcribe(args) -> int:
@@ -30,7 +63,10 @@ def transcribe(args) -> int:
         language=language,
         asr_options=asr_options,
     )
-    result = model.transcribe(audio, batch_size=args.batch_size)
+    report = progress_writer(args.progress, "transcribe")
+    result = model.transcribe(audio, batch_size=args.batch_size, progress_callback=report)
+    if report:
+        report(100)
     payload = {"language": result.get("language") or args.language, "segments": result["segments"]}
     with open(args.out, "w", encoding="utf-8") as handle:
         json.dump(payload, handle, ensure_ascii=False)
@@ -47,9 +83,18 @@ def align(args) -> int:
     language = source.get("language") or args.language or "ko"
 
     model, metadata = whisperx.load_align_model(language_code=language, device=args.device)
+    report = progress_writer(args.progress, "align")
     aligned = whisperx.align(
-        source["segments"], model, metadata, audio, args.device, return_char_alignments=False
+        source["segments"],
+        model,
+        metadata,
+        audio,
+        args.device,
+        return_char_alignments=False,
+        progress_callback=report,
     )
+    if report:
+        report(100)
     with open(args.out, "w", encoding="utf-8") as handle:
         json.dump({"language": language, "segments": aligned["segments"]}, handle, ensure_ascii=False)
 
@@ -71,6 +116,7 @@ def main() -> int:
     p_tx.add_argument("--compute-type", default="float16")
     p_tx.add_argument("--batch-size", type=int, default=16)
     p_tx.add_argument("--initial-prompt", default="")
+    p_tx.add_argument("--progress", default="", help="진행 퍼센트를 적을 파일")
     p_tx.set_defaults(func=transcribe)
 
     p_al = sub.add_parser("align")
@@ -79,6 +125,7 @@ def main() -> int:
     p_al.add_argument("--out", required=True)
     p_al.add_argument("--language", default="ko")
     p_al.add_argument("--device", default="cuda")
+    p_al.add_argument("--progress", default="", help="진행 퍼센트를 적을 파일")
     p_al.set_defaults(func=align)
 
     args = parser.parse_args()

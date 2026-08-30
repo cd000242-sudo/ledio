@@ -2,7 +2,7 @@
 import { createReadStream, existsSync } from 'node:fs'
 import { createAssistantRuntime } from './server/assistant-runtime.mjs'
 import { createInstaller, isEngineInstalled } from './server/stt-engine.mjs'
-import { analyzeForAutoEdit, applySelectedCuts } from './server/auto-edit.mjs'
+import { analyzeForAutoEdit, applySelectedCuts, readAutoEditProgress } from './server/auto-edit.mjs'
 import { eraseSubtitles } from './server/subtitle-erase.mjs'
 import {
   buildBurnSrt,
@@ -1500,6 +1500,17 @@ async function loadAutoEditModules() {
     import('../dist/edit/autoCut.js'),
   ])
   return { subtitles: { reformatSubtitles: reformat.reformatSubtitles }, autoCut }
+}
+
+/** 받아쓰기가 어디까지 갔는지 — 화면이 막대로 보여준다. 파이썬이 적어 둔 진짜 값이다. */
+async function handleAutoEditProgress(url, res) {
+  const mediaPath = String(url.searchParams.get('mediaPath') ?? '').trim()
+  if (!mediaPath) {
+    sendJson(res, 400, { ok: false, error: '영상 경로가 없습니다.' })
+    return
+  }
+  const { progressPathFor } = await import('../dist/captions/whisperx.js')
+  sendJson(res, 200, await readAutoEditProgress(mediaPath, { readFile, progressPathFor }))
 }
 
 /** ① 받아쓰기 + 후보 뽑기. 실제 자르기는 하지 않는다. */
@@ -3650,6 +3661,11 @@ export function createShortsFactoryServer(options = {}) {
 
       if (pathname === '/api/subtitle-erase' && req.method === 'POST') {
         await handleSubtitleErase(req, res, workspaceRoot)
+        return
+      }
+
+      if (pathname === '/api/auto-edit/progress' && req.method === 'GET') {
+        await handleAutoEditProgress(requestUrl, res)
         return
       }
 

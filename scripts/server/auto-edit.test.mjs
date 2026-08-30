@@ -1,5 +1,12 @@
 import { describe, expect, it, vi } from 'vitest'
-import { analyzeForAutoEdit, applySelectedCuts, autoEditPaths, describeCandidates, formatClock } from './auto-edit.mjs'
+import {
+  analyzeForAutoEdit,
+  applySelectedCuts,
+  autoEditPaths,
+  describeCandidates,
+  formatClock,
+  readAutoEditProgress,
+} from './auto-edit.mjs'
 import * as autoCut from '../../dist/edit/autoCut.js'
 import { reformatSubtitles } from '../../dist/subtitles/reformat.js'
 
@@ -124,5 +131,31 @@ describe('다시 찍은 부분', () => {
       { startMs: 0, endMs: 1000, text: '', reason: 'silence', label: '무음', suggested: true },
     ])
     expect(shaped.keep).toBeUndefined()
+  })
+})
+
+
+describe('진행 상황 읽기', () => {
+  it('파이썬이 적어 둔 퍼센트를 그대로 돌려준다', async () => {
+    const readFile = async () => JSON.stringify({ stage: 'transcribe', percent: 42.5 })
+    const progress = await readAutoEditProgress('C:/영상/a.mp4', { readFile })
+    expect(progress).toEqual({ ok: true, stage: 'transcribe', percent: 42.5 })
+  })
+
+  it('아직 파일이 없으면 준비 중으로 알린다 — 실패가 아니다', async () => {
+    const readFile = async () => {
+      throw Object.assign(new Error('없음'), { code: 'ENOENT' })
+    }
+    expect(await readAutoEditProgress('C:/영상/a.mp4', { readFile })).toEqual({ ok: true, stage: 'starting', percent: 0 })
+  })
+
+  it('반쯤 쓰인 파일을 읽어도 터지지 않는다', async () => {
+    const readFile = async () => '{"stage":'
+    expect(await readAutoEditProgress('C:/영상/a.mp4', { readFile })).toEqual({ ok: true, stage: 'starting', percent: 0 })
+  })
+
+  it('퍼센트는 0~100 밖으로 나가지 않는다', async () => {
+    const readFile = async () => JSON.stringify({ stage: 'align', percent: 140 })
+    expect((await readAutoEditProgress('C:/영상/a.mp4', { readFile })).percent).toBe(100)
   })
 })

@@ -1,4 +1,4 @@
-/* global document, fetch */
+/* global document, fetch, setInterval, clearInterval */
 /**
  * 자동 편집 탭 — 넣어두면 알아서 다듬는다.
  *
@@ -28,6 +28,8 @@ const state = {
   mediaName: '',
   strength: 'normal',
   smoothJoin: true,
+  progress: null,
+  collapsed: false,
   busy: false,
   phase: 'idle',
   status: '',
@@ -48,6 +50,35 @@ const fileNameOf = (path) => String(path).split(/[/\\]/).pop() || path
 const seconds = (ms) => `${Math.floor(ms / 1000 / 60)}분 ${Math.round((ms / 1000) % 60)}초`
 
 let repaint = () => {}
+let progressTimer = null
+
+const STAGE_LABELS = {
+  starting: '준비 중',
+  transcribe: '받아쓰는 중',
+  align: '시각 맞추는 중',
+}
+
+/** 받아쓰기가 어디까지 갔는지 주기적으로 물어본다 — 파이썬이 적어 둔 진짜 퍼센트다. */
+function watchProgress() {
+  stopWatching()
+  progressTimer = setInterval(async () => {
+    try {
+      const response = await fetch(`/api/auto-edit/progress?mediaPath=${encodeURIComponent(state.mediaPath)}`)
+      const data = await response.json()
+      if (!data.ok || !state.busy) return
+      state.progress = { stage: data.stage, percent: data.percent }
+      repaint()
+    } catch {
+      // 잠깐 못 읽어도 그만이다 — 다음 번에 다시 물어본다.
+    }
+  }, 1200)
+}
+
+function stopWatching() {
+  if (progressTimer) clearInterval(progressTimer)
+  progressTimer = null
+  state.progress = null
+}
 
 async function analyze(deps) {
   if (state.busy || !state.mediaPath) return
@@ -55,7 +86,9 @@ async function analyze(deps) {
   state.phase = 'analyzing'
   state.error = ''
   state.result = null
-  state.status = '받아쓰고 자를 곳을 고르는 중… 영상 길이의 1/5쯤 걸립니다.'
+  state.status = '받아쓰고 자를 곳을 고르는 중…'
+  state.progress = { stage: 'starting', percent: 0 }
+  watchProgress()
   repaint()
 
   try {
@@ -77,6 +110,7 @@ async function analyze(deps) {
     state.status = ''
   } finally {
     state.busy = false
+    stopWatching()
     repaint()
   }
 }
@@ -139,6 +173,49 @@ function buildCandidateRow(item) {
   return row
 }
 
+/** 진행 막대 — 접으면 한 줄로 줄고, 다시 누르면 펼쳐진다. */
+function buildProgress() {
+  const percent = Math.round(state.progress.percent)
+  const stage = STAGE_LABELS[state.progress.stage] ?? '작업 중'
+
+  if (state.collapsed) {
+    const pill = el('button', 'auto-progress-pill')
+    pill.type = 'button'
+    const track = el('span', 'auto-progress-pillbar')
+    const fill = el('span', null)
+    fill.style.width = `${percent}%`
+    track.append(fill)
+    pill.append(el('strong', null, stage), track, el('span', 'auto-progress-pct', `${percent}%`), el('span', 'muted', '눌러서 펼치기'))
+    pill.addEventListener('click', () => {
+      state.collapsed = false
+      repaint()
+    })
+    return pill
+  }
+
+  const box = el('div', 'auto-progress')
+  const head = el('div', 'auto-progress-head')
+  const collapse = el('button', 'icon-button', '–')
+  collapse.type = 'button'
+  collapse.title = '접기'
+  collapse.addEventListener('click', () => {
+    state.collapsed = true
+    repaint()
+  })
+  head.append(
+    el('strong', null, '자를 곳 찾는 중'),
+    el('span', 'muted', stage),
+    el('span', 'auto-progress-pct', `${percent}%`),
+    collapse,
+  )
+  const bar = el('div', 'auto-progress-bar')
+  const fill = el('div', null)
+  fill.style.width = `${percent}%`
+  bar.append(fill)
+  box.append(head, bar)
+  return box
+}
+
 function buildTab(deps) {
   const root = el('div', 'auto-tab')
   root.append(
@@ -196,7 +273,8 @@ function buildTab(deps) {
   controls.append(label, analyzeBtn)
   root.append(controls)
 
-  if (state.status) root.append(el('p', 'longform-status', state.status))
+  if (state.progress) root.append(buildProgress())
+  else if (state.status) root.append(el('p', 'longform-status', state.status))
   if (state.error) root.append(el('p', 'longform-error', state.error))
 
   // 후보 목록

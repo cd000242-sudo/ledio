@@ -115,3 +115,24 @@ export async function applySelectedCuts(mediaPath, selected, totalMs, deps, opti
     pieces: keep.length,
   }
 }
+
+
+/**
+ * 받아쓰기 진행 상황을 읽는다.
+ *
+ * 파이썬이 영상 옆 작업 폴더에 퍼센트를 계속 적어 둔다(whisperx가 주는 진짜 값이다).
+ * 아직 없거나 반쯤 쓰인 파일이면 '준비 중'으로 답한다 — 진행 표시 때문에 작업이 막히면 안 된다.
+ */
+export async function readAutoEditProgress(mediaPath, deps) {
+  const { readFile, progressPathFor } = deps
+  const waiting = { ok: true, stage: 'starting', percent: 0 }
+  try {
+    const path = progressPathFor ? progressPathFor(mediaPath) : mediaPath
+    const raw = await readFile(path, 'utf8')
+    const parsed = JSON.parse(raw)
+    const percent = Math.min(100, Math.max(0, Number(parsed.percent) || 0))
+    return { ok: true, stage: String(parsed.stage || 'starting'), percent }
+  } catch {
+    return waiting
+  }
+}

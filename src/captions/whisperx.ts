@@ -27,6 +27,8 @@ export interface WhisperxOptions {
   initialPrompt?: string
   pythonBin?: string
   scriptPath?: string
+  /** 진행 퍼센트를 적을 파일. 안 주면 영상 옆 작업 폴더에 만든다. */
+  progressPath?: string
 }
 
 /** faster-whisper의 initial_prompt는 길면 잘린다 — 앞부분만 힌트로 준다. */
@@ -93,9 +95,21 @@ export interface PhaseArgOptions extends WhisperxOptions {
   scriptPath: string
   segmentsJson: string
   outJson: string
+  /** 진행 퍼센트를 적을 파일 — 주면 파이썬이 여기에 계속 써 준다. */
+  progressPath?: string
 }
 
 /** 1단계 — 전사(ctranslate2, GPU). */
+/**
+ * 받아쓰기 진행 상황을 적는 파일 — 영상 옆 작업 폴더에 둔다.
+ * 서버가 같은 규칙으로 경로를 계산해 읽으므로, 인자를 따로 주고받을 필요가 없다.
+ */
+export function progressPathFor(mediaPath: string): string {
+  const dir = dirname(mediaPath)
+  const name = basename(mediaPath).replace(/\.[^.]+$/, '')
+  return join(dir, '.whisperx', `${name}.progress.json`)
+}
+
 export function buildTranscribeArgs(options: PhaseArgOptions): string[] {
   const args = [
     options.scriptPath,
@@ -114,6 +128,7 @@ export function buildTranscribeArgs(options: PhaseArgOptions): string[] {
     '--batch-size',
     String(options.batchSize ?? 16),
   ]
+  if (options.progressPath) args.push('--progress', options.progressPath)
   const prompt = buildInitialPrompt(options.initialPrompt)
   if (prompt) args.push('--initial-prompt', prompt)
   return args
@@ -133,6 +148,7 @@ export function buildAlignArgs(options: PhaseArgOptions): string[] {
     (options.language ?? 'ko').trim() || 'ko',
     '--device',
     options.alignDevice ?? options.device ?? 'cuda',
+    ...(options.progressPath ? ['--progress', options.progressPath] : []),
   ]
 }
 
@@ -224,6 +240,8 @@ export async function runWhisperx(
     outJson,
     device,
     computeType,
+    // 진행 퍼센트를 파일로 남긴다 — 서버가 같은 규칙으로 찾아 읽어 화면에 막대로 보여준다.
+    progressPath: options.progressPath ?? progressPathFor(options.mediaPath),
   }
   const runOptions = {
     timeout: 1000 * 60 * 60,
