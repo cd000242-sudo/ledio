@@ -4,10 +4,13 @@
  *
  * 원칙: **먼저 몇 초만 해보고 결과를 보여준다.** 전체는 오래 걸리니 확인 후에 돌린다.
  * 쇼츠(9:16)든 롱폼(16:9)이든 좌표 기반이라 비율을 가리지 않는다.
+ *
+ * 지울 대상은 세 가지 — 자막(아래쪽에서 바뀌는 글자), 워터마크(늘 같은 자리의 표식), 둘 다.
  */
 import { basename, dirname, extname, join } from 'node:path'
 
 export const ERASE_MODES = ['background', 'fast', 'blur']
+export const ERASE_TARGETS = ['subtitle', 'watermark', 'both']
 
 export function erasePaths(mediaPath, preview = false) {
   const dir = dirname(mediaPath)
@@ -33,6 +36,8 @@ export function buildEraseArgs(options) {
     options.box ?? 'auto',
     '--mode',
     ERASE_MODES.includes(options.mode) ? options.mode : 'background',
+    '--target',
+    ERASE_TARGETS.includes(options.target) ? options.target : 'subtitle',
   ]
   if (options.startSec) args.push('--start', String(options.startSec))
   if (options.durationSec) args.push('--duration', String(options.durationSec))
@@ -66,6 +71,7 @@ export async function eraseSubtitles(mediaPath, deps, options = {}) {
     tempPath: paths.temp,
     box: options.box ?? 'auto',
     mode: options.mode ?? 'background',
+    target: options.target ?? 'subtitle',
     startSec: options.startSec ?? 0,
     // 미리보기는 기본 3초만 — 전체는 오래 걸린다.
     durationSec: preview ? (options.durationSec ?? 3) : (options.durationSec ?? 0),
@@ -90,5 +96,8 @@ export async function eraseSubtitles(mediaPath, deps, options = {}) {
     estimateFullSec,
     detectedBox: parseDetectedBox(result.stderr),
     mode: options.mode ?? 'background',
+    target: options.target ?? 'subtitle',
+    // 지울 글자를 못 찾으면 원본을 그대로 내보낸다 — 실패가 아니라 '건드릴 게 없었다'는 뜻이다.
+    foundNothing: String(result.stderr ?? '').includes('지울 글자를 찾지 못했습니다'),
   }
 }

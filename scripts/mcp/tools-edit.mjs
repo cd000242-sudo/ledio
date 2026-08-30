@@ -243,13 +243,17 @@ export function createEditTools({ api }) {
       name: 'erase_subtitles',
       title: '영상에 박힌 자막 지우기',
       description:
-        '영상 화면에 구워진 자막을 배경으로 메워 지운다. 먼저 preview=true로 3초만 해보고 결과를 확인한 뒤 전체를 돌린다. ' +
-        '쇼츠·롱폼 모두 된다.',
+        '영상 화면에 구워진 자막·워터마크를 배경으로 메워 지운다. 글자가 있는 자리만 건드리므로 나머지 화면은 그대로 남는다. ' +
+        '먼저 preview=true로 3초만 해보고 결과를 확인한 뒤 전체를 돌린다. 쇼츠·롱폼 모두 된다.',
       risk: 'run',
       approval: true,
       schema: {
         mediaPath: z.string().min(1),
         mode: z.enum(['background', 'fast', 'blur']).default('background'),
+        target: z
+          .enum(['subtitle', 'watermark', 'both'])
+          .default('subtitle')
+          .describe('subtitle=아래쪽 자막, watermark=늘 같은 자리의 표식, both=화면 안 모든 글자'),
         box: z.string().default('auto').describe('auto(자동 감지) 또는 x,y,너비,높이'),
         preview: z.boolean().default(true).describe('true면 앞 3초만 처리한다'),
       },
@@ -257,11 +261,15 @@ export function createEditTools({ api }) {
         const data = await api.post('/api/subtitle-erase', {
           mediaPath: args.mediaPath,
           mode: args.mode,
+          target: args.target,
           box: args.box,
           preview: args.preview,
           durationSec: args.preview ? 3 : 0,
         })
         if (!data.ok) return { text: failureText(data, '자막 지우기 실패'), data }
+        if (data.foundNothing) {
+          return { text: '지울 글자를 찾지 못했습니다. 원본을 그대로 두었습니다.', data }
+        }
         const found = data.detectedBox
         const where = found ? ` (찾은 영역: ${found.w}×${found.h})` : ''
         return { text: `${args.preview ? '미리보기' : '전체'} 완료: ${data.outPath}${where}`, data }

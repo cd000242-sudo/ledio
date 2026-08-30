@@ -21,7 +21,7 @@ const waitFor = async (check) => {
 describe('설치 단계', () => {
   it('전용 venv → WhisperX → GPU용 torch 순서다', () => {
     const steps = installSteps('C:/repo')
-    expect(steps.map((step) => step.id)).toEqual(['venv', 'whisperx', 'opencv', 'torch-cuda'])
+    expect(steps.map((step) => step.id)).toEqual(['venv', 'whisperx', 'opencv', 'text-detector', 'torch-cuda'])
     expect(steps[0].args).toContain('C:/repo/.venv-stt'.replace(/\//g, process.platform === 'win32' ? '\\' : '/'))
   })
 
@@ -32,7 +32,12 @@ describe('설치 단계', () => {
   })
 
   it('GPU가 필요 없으면 torch 단계를 뺀다', () => {
-    expect(installSteps('C:/repo', { cuda: false }).map((step) => step.id)).toEqual(['venv', 'whisperx', 'opencv'])
+    expect(installSteps('C:/repo', { cuda: false }).map((step) => step.id)).toEqual([
+      'venv',
+      'whisperx',
+      'opencv',
+      'text-detector',
+    ])
   })
 
   it('venv 파이썬 경로는 전용 폴더 안을 가리킨다 — TTS 환경과 섞지 않는다', () => {
@@ -62,6 +67,8 @@ describe('설치 실행', () => {
     children[2].emit('close', 0)
     await waitFor(() => children.length === 4)
     children[3].emit('close', 0)
+    await waitFor(() => children.length === 5)
+    children[4].emit('close', 0)
 
     await waitFor(() => installer.status().done)
     const status = installer.status()

@@ -1470,6 +1470,7 @@ async function handleSubtitleErase(req, res, workspaceRoot) {
     {
       preview: body.preview === true,
       mode: String(body.mode ?? 'background'),
+      target: String(body.target ?? 'subtitle'),
       box: body.box ? String(body.box) : 'auto',
       startSec: Number(body.startSec) || 0,
       durationSec: Number(body.durationSec) || 0,

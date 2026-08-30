@@ -7,15 +7,22 @@
  */
 
 const MODES = [
-  { value: 'background', label: '배경 복원 (권장 · 결과가 가장 깨끗)' },
-  { value: 'fast', label: '빠른 채우기 (움직이는 배경에 유리)' },
+  { value: 'background', label: '배경 복원 (권장 · 무늬 있는 배경에 강함)' },
+  { value: 'fast', label: '빠른 채우기 (단순한 배경·움직이는 물체에 강함)' },
   { value: 'blur', label: '흐리게 가리기 (가장 빠름 · 티가 남음)' },
+]
+
+const TARGETS = [
+  { value: 'subtitle', label: '자막 (화면 아래쪽에서 바뀌는 글자)' },
+  { value: 'watermark', label: '워터마크 (늘 같은 자리의 로고·채널명)' },
+  { value: 'both', label: '둘 다 (화면 안의 모든 글자)' },
 ]
 
 const state = {
   mediaPath: '',
   mediaName: '',
   mode: 'background',
+  target: 'subtitle',
   box: 'auto',
   busy: false,
   status: '',
@@ -51,6 +58,7 @@ async function run(preview) {
       body: JSON.stringify({
         mediaPath: state.mediaPath,
         mode: state.mode,
+        target: state.target,
         box: state.box,
         preview,
         durationSec: preview ? 3 : 0,
@@ -58,7 +66,10 @@ async function run(preview) {
     })
     const data = await response.json()
     if (!data.ok) throw new Error(data.error ?? '자막 지우기에 실패했습니다.')
-    if (preview) {
+    if (data.foundNothing) {
+      // 못 찾았으면 원본 그대로다. 억지로 지우면 영상이 상한다.
+      state.status = '지울 글자를 찾지 못했습니다. 영상은 그대로 두었습니다. 지울 영역을 직접 지정해 보세요.'
+    } else if (preview) {
       state.preview = data
       state.status = '미리보기가 만들어졌습니다. 결과를 확인하고 전체를 돌리세요.'
     } else {
@@ -77,7 +88,11 @@ async function run(preview) {
 function buildTab(deps) {
   const root = el('div', 'erase-tab')
   root.append(
-    el('p', 'longform-intro', '영상에 박힌 자막을 지웁니다. 뿌옇게 가리는 게 아니라 앞뒤 프레임의 배경을 끌어와 메웁니다.'),
+    el(
+      'p',
+      'longform-intro',
+      '영상에 박힌 자막·워터마크를 지웁니다. 글자를 찾아 그 자리만 메우므로 나머지 화면은 그대로 남습니다.',
+    ),
   )
 
   const drop = el('div', 'longform-drop')
@@ -107,6 +122,17 @@ function buildTab(deps) {
   })
   root.append(drop)
 
+  const targetSelect = el('select', 'erase-mode')
+  for (const option of TARGETS) {
+    const node = el('option', null, option.label)
+    node.value = option.value
+    targetSelect.append(node)
+  }
+  targetSelect.value = state.target
+  targetSelect.addEventListener('change', () => {
+    state.target = targetSelect.value
+  })
+
   const modeSelect = el('select', 'erase-mode')
   for (const option of MODES) {
     const node = el('option', null, option.label)
@@ -126,11 +152,13 @@ function buildTab(deps) {
   })
 
   const options = el('div', 'longform-options')
+  const targetField = el('label', 'longform-field')
+  targetField.append(el('span', null, '지울 대상'), targetSelect)
   const modeField = el('label', 'longform-field')
   modeField.append(el('span', null, '지우는 방식'), modeSelect)
   const boxField = el('label', 'longform-field')
   boxField.append(el('span', null, '지울 영역'), boxInput)
-  options.append(modeField, boxField)
+  options.append(targetField, modeField, boxField)
   root.append(options)
 
   const previewBtn = el('button', 'primary-button', state.busy ? '처리 중…' : '3초만 먼저 해보기')

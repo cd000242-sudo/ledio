@@ -21,11 +21,34 @@ describe('파이썬 인자', () => {
     expect(buildEraseArgs({ ...base, mode: '이상한값' })[buildEraseArgs(base).indexOf('--mode') + 1]).toBe('background')
   })
 
+  it('지울 대상은 기본이 자막', () => {
+    expect(buildEraseArgs(base)[buildEraseArgs(base).indexOf('--target') + 1]).toBe('subtitle')
+  })
+
+  it('워터마크·둘 다도 넘긴다 — 모르는 값은 자막으로 물러선다', () => {
+    expect(buildEraseArgs({ ...base, target: 'watermark' })[buildEraseArgs(base).indexOf('--target') + 1]).toBe(
+      'watermark',
+    )
+    expect(buildEraseArgs({ ...base, target: 'both' })[buildEraseArgs(base).indexOf('--target') + 1]).toBe('both')
+    expect(buildEraseArgs({ ...base, target: '이상한값' })[buildEraseArgs(base).indexOf('--target') + 1]).toBe(
+      'subtitle',
+    )
+  })
+
   it('직접 지정한 영역과 구간을 넘긴다', () => {
     const args = buildEraseArgs({ ...base, box: '10,20,30,40', startSec: 5, durationSec: 3 })
     expect(args[args.indexOf('--box') + 1]).toBe('10,20,30,40')
     expect(args[args.indexOf('--start') + 1]).toBe('5')
     expect(args[args.indexOf('--duration') + 1]).toBe('3')
+  })
+})
+
+describe('지울 글자를 못 찾은 경우', () => {
+  it('원본 그대로라고 알려 준다 — 실패가 아니다', async () => {
+    const runPython = vi.fn(async () => ({ ok: true, stderr: 'note: 지울 글자를 찾지 못했습니다.' }))
+    const result = await eraseSubtitles('C:/영상/a.mp4', { runPython, scriptPath: 's.py' }, { preview: false })
+    expect(result.ok).toBe(true)
+    expect(result.foundNothing).toBe(true)
   })
 })
 

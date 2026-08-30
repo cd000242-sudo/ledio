@@ -35,6 +35,13 @@ export function installSteps(workspaceRoot, { cuda = true } = {}) {
       command: python,
       args: ['-m', 'pip', 'install', '--upgrade', 'opencv-python-headless'],
     },
+    {
+      // 자막 지우기가 글자 위치를 찾는 데 쓴다. 모델이 패키지에 들어 있어 따로 내려받지 않는다.
+      id: 'text-detector',
+      label: '글자 찾기 모델 설치',
+      command: python,
+      args: ['-m', 'pip', 'install', '--upgrade', 'rapidocr-onnxruntime'],
+    },
   ]
   if (cuda) {
     steps.push({
