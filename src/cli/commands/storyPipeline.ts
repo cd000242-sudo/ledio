@@ -9,6 +9,7 @@ import { runGenerateStoryImages } from './generateStoryImages.js'
 import { runNarrate } from './narrate.js'
 import { runStoryboardRender } from './storyboardRender.js'
 import { runRender } from './render.js'
+import { programScript } from '../../config/programRoot.js'
 
 export interface StoryPipelineOptions {
   voice?: string
@@ -116,7 +117,7 @@ async function runMotionStage(paths: PipelinePaths, options: MotionStageOptions)
         ? 'higgsfield-generator.mjs'
         : 'seedance-generator.mjs'
   const mod = (await import(
-    pathToFileURL(join(process.cwd(), 'scripts', moduleFile)).href
+    pathToFileURL(programScript(moduleFile)).href
   )) as MotionModule
 
   for (const index of targets) {

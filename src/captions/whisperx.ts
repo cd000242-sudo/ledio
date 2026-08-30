@@ -3,6 +3,7 @@ import { existsSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { basename, delimiter, dirname, extname, join, resolve } from 'node:path'
 import type { Cue } from '../subtitles/srt.js'
+import { programScript } from '../config/programRoot.js'
 
 /**
  * WhisperX 강제정렬 STT — 롱폼 자막용 "가능한 가장 작은 단위" 타임스탬프를 만든다.
@@ -200,7 +201,7 @@ export async function runWhisperx(
       'WhisperX를 찾을 수 없습니다. 저장소 폴더에서 `py -3.13 -m venv .venv-stt` 후 `.venv-stt/Scripts/python -m pip install whisperx`를 실행하세요.',
     )
   }
-  const scriptPath = options.scriptPath ?? join(process.cwd(), 'scripts', 'whisperx_stt.py')
+  const scriptPath = options.scriptPath ?? programScript('whisperx_stt.py')
   const stem = basename(options.mediaPath, extname(options.mediaPath))
   const segmentsJson = join(options.outputDir, stem + '.segments.json')
   const outJson = join(options.outputDir, stem + '.aligned.json')

@@ -3,6 +3,7 @@ import { join } from 'node:path'
 import YAML from 'yaml'
 import { z } from 'zod'
 import { buildStoryScenes, storyProjectSchema } from '../modes/story.js'
+import { programScript } from '../config/programRoot.js'
 
 export const storyImageGenerationInputSchema = storyProjectSchema.extend({
   productName: z.string().min(1).default('Story Channel'),
@@ -340,7 +341,7 @@ export class DropshotImageProvider implements ImageGenerationProvider {
   async generateImage(prompt: string, options?: { referenceImagePaths?: string[] }): Promise<Buffer> {
     const { pathToFileURL } = await import('node:url')
     const { join } = await import('node:path')
-    const moduleUrl = pathToFileURL(join(process.cwd(), 'scripts', 'dropshot-generator.mjs')).href
+    const moduleUrl = pathToFileURL(programScript('dropshot-generator.mjs')).href
     const mod = (await import(moduleUrl)) as DropshotModule
     const result = await mod.makeDropshotImage(
       prompt,

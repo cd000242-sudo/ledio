@@ -260,9 +260,10 @@ function mediaFolderForKind(kind) {
 
 // npm.cmd를 shell:false로 스폰하면 Node 20.12+에서 EINVAL이 나므로(CVE-2024-27980 패치),
 // node 실행파일로 tsx CLI(없으면 빌드된 dist)를 직접 실행한다.
-function cliEntryArgs(workspaceRoot) {
-  const tsxCli = join(workspaceRoot, 'node_modules', 'tsx', 'dist', 'cli.mjs')
-  if (existsSync(tsxCli)) return [tsxCli, join(workspaceRoot, 'src', 'cli', 'index.ts')]
+function cliEntryArgs() {
+  // CLI도 함께 배포되는 파일이다 — 작업 폴더가 아니라 프로그램 위치에서 찾는다.
+  const tsxCli = join(PROGRAM_ROOT, 'node_modules', 'tsx', 'dist', 'cli.mjs')
+  if (existsSync(tsxCli)) return [tsxCli, join(PROGRAM_ROOT, 'src', 'cli', 'index.ts')]
   return [join(PROGRAM_ROOT, 'dist', 'cli', 'index.js')]
 }
 
@@ -322,7 +323,7 @@ function defaultCommandRunner({ command, projectPath, workspaceRoot, args, env, 
     const cliArgs = args ?? [command, projectPath]
     // Electron 내부에서는 process.execPath가 electron.exe이므로,
     // ELECTRON_RUN_AS_NODE=1로 순수 Node처럼 실행한다(일반 node에서는 무시됨).
-    const child = spawn(process.execPath, [...cliEntryArgs(workspaceRoot), ...cliArgs], {
+    const child = spawn(process.execPath, [...cliEntryArgs(), ...cliArgs], {
       cwd: workspaceRoot,
       env: { ...process.env, ELECTRON_RUN_AS_NODE: '1', ...toolEnvOverrides(), ...env },
       shell: false,

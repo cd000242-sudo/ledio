@@ -21,6 +21,7 @@ import { runSourceRemix } from './commands/sourceRemix.js'
 import { runProductRender } from './commands/productRender.js'
 import { STORY_TEMPLATES } from '../story/scriptTemplates.js'
 import { logger } from '../utils/logger.js'
+import { programScript } from '../config/programRoot.js'
 
 const program = new Command()
 
@@ -327,7 +328,7 @@ try {
   const { pathToFileURL } = await import('node:url')
   const { join } = await import('node:path')
   const dropshot = (await import(
-    pathToFileURL(join(process.cwd(), 'scripts', 'dropshot-generator.mjs')).href
+    pathToFileURL(programScript('dropshot-generator.mjs')).href
   ).catch(() => null)) as { closeDropshotBrowser?: () => Promise<void> } | null
   await dropshot?.closeDropshotBrowser?.()
 } catch {
